@@ -1,0 +1,208 @@
+[
+    {
+        "id": "ws_in",
+        "type": "websocket in",
+        "z": "a100000000000001",
+        "name": "WS in (kiosk)",
+        "server": "wsPretriage",
+        "client": "",
+        "x": 170,
+        "y": 140,
+        "wires": [
+            [
+                "fn_parse"
+            ]
+        ]
+    },
+    {
+        "id": "fn_parse",
+        "type": "function",
+        "z": "a100000000000001",
+        "name": "Parse/validar JSON",
+        "func": "// Espera JSON del kiosk. Asegura objeto y normaliza.\nlet p = msg.payload;\nif (Buffer.isBuffer(p)) p = p.toString();\nif (typeof p === 'string') {\n  try { p = JSON.parse(p); } catch(e){ node.error('JSON inválido de WS', msg); return null; }\n}\nif (!p || typeof p !== 'object') { node.error('Payload no es objeto', msg); return null; }\n// Completa label si falta\nfunction sevLabel(s){\n  if(s==='high') return 'Crítico alto';\n  if(s==='mid')  return 'Crítico medio';\n  if(s==='low')  return 'Crítico bajo';\n  return 'No crítico';\n}\nif (p.severity && !p.severity_label) p.severity_label = sevLabel(p.severity);\nmsg.payload = p;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 140,
+        "wires": [
+            [
+                "mqtt_submit",
+                "sw_alerts"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt_submit",
+        "type": "mqtt out",
+        "z": "a100000000000001",
+        "name": "MQTT → pretriage/submit",
+        "topic": "pretriage/submit",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "b1mqtt",
+        "x": 670,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "sw_alerts",
+        "type": "switch",
+        "z": "a100000000000001",
+        "name": "¿mid/high?",
+        "property": "payload.severity",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "mid",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "high",
+                "vt": "str"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 630,
+        "y": 180,
+        "wires": [
+            [
+                "mqtt_alerts"
+            ],
+            [
+                "mqtt_alerts"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt_alerts",
+        "type": "mqtt out",
+        "z": "a100000000000001",
+        "name": "MQTT → pretriage/alerts",
+        "topic": "pretriage/alerts",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "b1mqtt",
+        "x": 890,
+        "y": 180,
+        "wires": []
+    },
+    {
+        "id": "mqtt_in_submit",
+        "type": "mqtt in",
+        "z": "a100000000000001",
+        "name": "MQTT ← pretriage/submit",
+        "topic": "pretriage/submit",
+        "qos": "0",
+        "datatype": "auto",
+        "broker": "b1mqtt",
+        "nl": false,
+        "rap": false,
+        "rh": 0,
+        "inputs": 0,
+        "x": 170,
+        "y": 240,
+        "wires": [
+            [
+                "fn_to_ws"
+            ]
+        ]
+    },
+    {
+        "id": "fn_to_ws",
+        "type": "function",
+        "z": "a100000000000001",
+        "name": "MQTT → WS (string)",
+        "func": "let p = msg.payload;\nif (Buffer.isBuffer(p)) p = p.toString();\nif (typeof p !== 'string') p = JSON.stringify(p);\nmsg.payload = p; // WS out espera string\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 430,
+        "y": 240,
+        "wires": [
+            [
+                "ws_out",
+                "dbg"
+            ]
+        ]
+    },
+    {
+        "id": "ws_out",
+        "type": "websocket out",
+        "z": "a100000000000001",
+        "name": "WS out (broadcast)",
+        "server": "wsPretriage",
+        "client": "",
+        "x": 690,
+        "y": 240,
+        "wires": []
+    },
+    {
+        "id": "dbg",
+        "type": "debug",
+        "z": "a100000000000001",
+        "name": "Enviado a WS",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 680,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "wsPretriage",
+        "type": "websocket-listener",
+        "path": "/ws/pretriage",
+        "wholemsg": "false"
+    },
+    {
+        "id": "b1mqtt",
+        "type": "mqtt-broker",
+        "name": "Public Mosquitto",
+        "broker": "broker.hivemq.com",
+        "port": "1883",
+        "clientid": "nr-pretriage-${os.hostname()}",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    }
+]

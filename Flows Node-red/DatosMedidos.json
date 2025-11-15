@@ -1,0 +1,580 @@
+[
+    {
+        "id": "f5aaa6722f0bdb21",
+        "type": "mqtt in",
+        "z": "97746093589ab302",
+        "name": "esp32/health (JSON)",
+        "topic": "esp32/health",
+        "qos": "0",
+        "datatype": "auto",
+        "broker": "bkr1",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 220,
+        "y": 140,
+        "wires": [
+            [
+                "a0bf2a575e48c830",
+                "ba281c599a202d99"
+            ]
+        ]
+    },
+    {
+        "id": "a0bf2a575e48c830",
+        "type": "json",
+        "z": "97746093589ab302",
+        "name": "JSON → obj",
+        "property": "payload",
+        "action": "",
+        "pretty": false,
+        "x": 650,
+        "y": 140,
+        "wires": [
+            [
+                "6bcd9a9ca264db04",
+                "078dacd798cd6afe",
+                "bc8ffc17565c14d0"
+            ]
+        ]
+    },
+    {
+        "id": "6bcd9a9ca264db04",
+        "type": "function",
+        "z": "97746093589ab302",
+        "name": "→ Gauges (4 salidas)",
+        "func": "// Espera payload {hr, hrValid, spo2, spo2Valid, Ta, To}\nlet p = msg.payload || {};\nlet hr = Number(p.hr);\nlet spo2 = Number(p.spo2);\nlet Ta = Number(p.Ta);\nlet To = Number(p.To);\n\nlet m1 = {payload: isFinite(hr)?hr:null};\nlet m2 = {payload: isFinite(spo2)?spo2:null};\nlet m3 = {payload: isFinite(Ta)?Ta:null};\nlet m4 = {payload: isFinite(To)?To:null};\n\nreturn [m1,m2,m3,m4];",
+        "outputs": 4,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 870,
+        "y": 140,
+        "wires": [
+            [
+                "ed28c77e6d6d5aa4"
+            ],
+            [
+                "10ea71118ccaf60d"
+            ],
+            [
+                "6a1f5d91949e32a4"
+            ],
+            [
+                "1b6d296a197c2a32"
+            ]
+        ]
+    },
+    {
+        "id": "078dacd798cd6afe",
+        "type": "function",
+        "z": "97746093589ab302",
+        "name": "→ Chart (4 series)",
+        "func": "let p = msg.payload || {};\nlet out = [];\nlet now = new Date();\nfunction make(topic, val){\n  if(!isFinite(val)) return null;\n  return { topic, payload: { x: now, y: Number(val) } };\n}\nlet a = make(\"HR\", p.hr);\nlet b = make(\"SpO2\", p.spo2);\nlet c = make(\"Ta\", p.Ta);\nlet d = make(\"To\", p.To);\n[a,b,c,d].forEach(m=>{ if(m) out.push(m); });\nreturn [out];",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 870,
+        "y": 200,
+        "wires": [
+            [
+                "59df5f451f1990ef"
+            ]
+        ]
+    },
+    {
+        "id": "ed28c77e6d6d5aa4",
+        "type": "ui_gauge",
+        "z": "97746093589ab302",
+        "name": "HR",
+        "group": "1ea3c9aaa50cfe3b",
+        "order": 1,
+        "width": 3,
+        "height": 3,
+        "gtype": "gage",
+        "title": "Heart Rate",
+        "label": "bpm",
+        "format": "{{value}}",
+        "min": 40,
+        "max": 180,
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "className": "",
+        "x": 1150,
+        "y": 140,
+        "wires": []
+    },
+    {
+        "id": "10ea71118ccaf60d",
+        "type": "ui_gauge",
+        "z": "97746093589ab302",
+        "name": "SpO2",
+        "group": "1ea3c9aaa50cfe3b",
+        "order": 2,
+        "width": 3,
+        "height": 3,
+        "gtype": "gage",
+        "title": "SpO₂",
+        "label": "%",
+        "format": "{{value}}",
+        "min": 70,
+        "max": 100,
+        "colors": [
+            "#ca3838",
+            "#e6e600",
+            "#00b500"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "className": "",
+        "x": 1090,
+        "y": 360,
+        "wires": []
+    },
+    {
+        "id": "6a1f5d91949e32a4",
+        "type": "ui_gauge",
+        "z": "97746093589ab302",
+        "name": "Ta",
+        "group": "1ea3c9aaa50cfe3b",
+        "order": 3,
+        "width": 3,
+        "height": 3,
+        "gtype": "gage",
+        "title": "Temp. Ambiente (Ta)",
+        "label": "°C",
+        "format": "{{value}}",
+        "min": 10,
+        "max": 40,
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "className": "",
+        "x": 1090,
+        "y": 420,
+        "wires": []
+    },
+    {
+        "id": "1b6d296a197c2a32",
+        "type": "ui_gauge",
+        "z": "97746093589ab302",
+        "name": "To",
+        "group": "1ea3c9aaa50cfe3b",
+        "order": 4,
+        "width": 3,
+        "height": 3,
+        "gtype": "gage",
+        "title": "Temp. Objeto (To)",
+        "label": "°C",
+        "format": "{{value}}",
+        "min": 20,
+        "max": 45,
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "className": "",
+        "x": 1090,
+        "y": 480,
+        "wires": []
+    },
+    {
+        "id": "59df5f451f1990ef",
+        "type": "ui_chart",
+        "z": "97746093589ab302",
+        "name": "Series HR/SpO2/Ta/To",
+        "group": "dee1a50ac41c3308",
+        "order": 1,
+        "width": 12,
+        "height": 6,
+        "label": "Tendencias",
+        "chartType": "line",
+        "legend": "true",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "",
+        "dot": false,
+        "ymin": "",
+        "ymax": "",
+        "removeOlder": "6",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "60",
+        "cutout": 0,
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#ff7f0e",
+            "#2ca02c",
+            "#d62728"
+        ],
+        "outputs": 1,
+        "useDifferentColor": true,
+        "x": 1130,
+        "y": 200,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "ba281c599a202d99",
+        "type": "debug",
+        "z": "97746093589ab302",
+        "name": "raw esp32/health",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 610,
+        "y": 220,
+        "wires": []
+    },
+    {
+        "id": "125cb25e75959ec2",
+        "type": "mqtt in",
+        "z": "97746093589ab302",
+        "name": "esp32/health/hr",
+        "topic": "esp32/health/hr",
+        "qos": "0",
+        "datatype": "auto",
+        "broker": "bkr1",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 230,
+        "y": 300,
+        "wires": [
+            [
+                "f9c7d31a77c9238e"
+            ]
+        ]
+    },
+    {
+        "id": "cb792156f808d2ba",
+        "type": "mqtt in",
+        "z": "97746093589ab302",
+        "name": "esp32/health/spo2",
+        "topic": "esp32/health/spo2",
+        "qos": "0",
+        "datatype": "auto",
+        "broker": "bkr1",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 240,
+        "y": 340,
+        "wires": [
+            [
+                "ed46fe9be99d36ed"
+            ]
+        ]
+    },
+    {
+        "id": "e5bb862dffa6647c",
+        "type": "mqtt in",
+        "z": "97746093589ab302",
+        "name": "esp32/health/ta",
+        "topic": "esp32/health/ta",
+        "qos": "0",
+        "datatype": "auto",
+        "broker": "bkr1",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 220,
+        "y": 380,
+        "wires": [
+            [
+                "8be4cbb47c86bf33"
+            ]
+        ]
+    },
+    {
+        "id": "c2ba10d7b2a0a5db",
+        "type": "mqtt in",
+        "z": "97746093589ab302",
+        "name": "esp32/health/to",
+        "topic": "esp32/health/to",
+        "qos": "0",
+        "datatype": "auto",
+        "broker": "bkr1",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 220,
+        "y": 420,
+        "wires": [
+            [
+                "5a9bae8427fe90dd"
+            ]
+        ]
+    },
+    {
+        "id": "f9c7d31a77c9238e",
+        "type": "function",
+        "z": "97746093589ab302",
+        "name": "num → gauge + chart",
+        "func": "let v = Number(msg.payload);\nif(!isFinite(v)) return null;\nnode.send([ {payload:v}, {topic:\"HR\", payload:{x:new Date(), y:v}} ]);\nreturn;",
+        "outputs": 2,
+        "noerr": 0,
+        "x": 710,
+        "y": 300,
+        "wires": [
+            [
+                "ed28c77e6d6d5aa4"
+            ],
+            [
+                "59df5f451f1990ef"
+            ]
+        ]
+    },
+    {
+        "id": "ed46fe9be99d36ed",
+        "type": "function",
+        "z": "97746093589ab302",
+        "name": "num → gauge + chart",
+        "func": "let v = Number(msg.payload);\nif(!isFinite(v)) return null;\nreturn [ {payload:v}, {topic:\"SpO2\", payload:{x:new Date(), y:v}} ];",
+        "outputs": 2,
+        "noerr": 0,
+        "x": 720,
+        "y": 340,
+        "wires": [
+            [
+                "10ea71118ccaf60d"
+            ],
+            [
+                "59df5f451f1990ef"
+            ]
+        ]
+    },
+    {
+        "id": "8be4cbb47c86bf33",
+        "type": "function",
+        "z": "97746093589ab302",
+        "name": "num → gauge + chart",
+        "func": "let v = Number(msg.payload);\nif(!isFinite(v)) return null;\nreturn [ {payload:v}, {topic:\"Ta\", payload:{x:new Date(), y:v}} ];",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 710,
+        "y": 380,
+        "wires": [
+            [
+                "6a1f5d91949e32a4"
+            ],
+            [
+                "59df5f451f1990ef"
+            ]
+        ]
+    },
+    {
+        "id": "5a9bae8427fe90dd",
+        "type": "function",
+        "z": "97746093589ab302",
+        "name": "num → gauge + chart",
+        "func": "let v = Number(msg.payload);\nif(!isFinite(v)) return null;\nreturn [ {payload:v}, {topic:\"To\", payload:{x:new Date(), y:v}} ];",
+        "outputs": 2,
+        "noerr": 0,
+        "x": 710,
+        "y": 420,
+        "wires": [
+            [
+                "1b6d296a197c2a32"
+            ],
+            [
+                "59df5f451f1990ef"
+            ]
+        ]
+    },
+    {
+        "id": "a7c7a30404459cd6",
+        "type": "mqtt in",
+        "z": "97746093589ab302",
+        "name": "car/state (estado/RSSI)",
+        "topic": "car/state",
+        "qos": "0",
+        "datatype": "auto",
+        "broker": "bkr1",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 240,
+        "y": 500,
+        "wires": [
+            [
+                "82c6ce82aee51602"
+            ]
+        ]
+    },
+    {
+        "id": "82c6ce82aee51602",
+        "type": "function",
+        "z": "97746093589ab302",
+        "name": "Formatea estado",
+        "func": "let txt = String(msg.payload);\nlet ts = new Date().toLocaleTimeString();\nmsg.payload = `Estado: ${txt}  ( ${ts} )`;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 690,
+        "y": 500,
+        "wires": [
+            [
+                "da14c2f52f196410"
+            ]
+        ]
+    },
+    {
+        "id": "da14c2f52f196410",
+        "type": "ui_text",
+        "z": "97746093589ab302",
+        "group": "9854f6a25119c2d5",
+        "order": 1,
+        "width": 12,
+        "height": 1,
+        "name": "Estado",
+        "label": "Conexión",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "x": 1100,
+        "y": 520,
+        "wires": []
+    },
+    {
+        "id": "bc8ffc17565c14d0",
+        "type": "function",
+        "z": "97746093589ab302",
+        "name": "WS Vitals",
+        "func": "// → WS vitals\n// msg.payload viene como {hr, hrValid, spo2, spo2Valid, Ta, To}\nlet p = msg.payload || {};\nmsg.payload = JSON.stringify({\n  type:   \"vitals\",\n  vitals: p\n});\n// El websocket out espera string (wholemsg=false)\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 840,
+        "y": 60,
+        "wires": [
+            [
+                "2c692551273406ba"
+            ]
+        ]
+    },
+    {
+        "id": "2c692551273406ba",
+        "type": "websocket out",
+        "z": "97746093589ab302",
+        "name": "WS out (vitals)",
+        "server": "wsPretriage",
+        "client": "",
+        "x": 1040,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "bkr1",
+        "type": "mqtt-broker",
+        "name": "Public Mosquitto",
+        "broker": "broker.hivemq.com",
+        "port": "1883",
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "1ea3c9aaa50cfe3b",
+        "type": "ui_group",
+        "name": "Vitals",
+        "tab": "tab1",
+        "order": 1,
+        "disp": true,
+        "width": "12",
+        "collapse": false
+    },
+    {
+        "id": "dee1a50ac41c3308",
+        "type": "ui_group",
+        "name": "Chart",
+        "tab": "tab1",
+        "order": 2,
+        "disp": true,
+        "width": "12",
+        "collapse": false
+    },
+    {
+        "id": "9854f6a25119c2d5",
+        "type": "ui_group",
+        "name": "Estado",
+        "tab": "tab1",
+        "order": 3,
+        "disp": true,
+        "width": "12",
+        "collapse": false
+    },
+    {
+        "id": "wsPretriage",
+        "type": "websocket-listener",
+        "path": "/ws/pretriage",
+        "wholemsg": "false"
+    },
+    {
+        "id": "tab1",
+        "type": "ui_tab",
+        "name": "Pre-Triage",
+        "icon": "dashboard",
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "a64211787b18c914",
+        "type": "global-config",
+        "env": [],
+        "modules": {
+            "node-red-dashboard": "3.6.6"
+        }
+    }
+]
