@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Pre-Triage | Dashboard (Local)</title>
+<style>
+  body{ font-family:system-ui,Arial; margin:24px; background:#f7f8fc; }
+  h1{ margin:0 0 8px 0; }
+  .muted{ color:#6c757d; }
+  table{ width:100%; border-collapse:collapse; background:#fff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; }
+  th,td{ padding:10px 12px; border-bottom:1px solid #e5e7eb; text-align:left; }
+  th.sortable{ cursor:pointer; user-select:none; }
+  tr:nth-child(even){ background:#fafbff; }
+  .badge{ padding:4px 10px; border-radius:999px; font-weight:700; color:#fff; font-size:12px; }
+  .b-ok{ background:#0f9d58; } .b-low{ background:#f4b400; color:#111; }
+  .b-mid{ background:#f57c00; } .b-high{ background:#db4437; }
+</style>
+</head>
+<body>
+<h1>Pre-Triage — Pacientes (modo local)</h1>
+<p class="muted">Sin MQTT. Abre también <code>kiosk_local.html</code>. Clic en “Estado” para ordenar.</p>
+
+<table id="tbl">
+  <thead>
+    <tr>
+      <th>Paciente</th>
+      <th>Operador</th>
+      <th>Fecha/Hora</th>
+      <th>Q1</th>
+      <th>Q2</th>
+      <th>Q3</th>
+      <th>Puntaje</th>
+      <th class="sortable" id="thEstado">Estado ⬍</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<script>
+const tb = document.querySelector("#tbl tbody");
+const sevOrder = { high:3, mid:2, low:1, ok:0 };
+
+function onLocalPublish(ev){
+  if(ev.key !== "pretriage_submit") return;
+  try{
+    const { payload } = JSON.parse(ev.newValue || "{}");
+    if(payload) addRow(payload);
+  }catch(_){}
+}
+window.addEventListener("storage", onLocalPublish);
+
+/* también cargamos lo último si existiera */
+(function bootstrap(){
+  try{
+    const v = localStorage.getItem("pretriage_submit");
+    if(v){ const { payload } = JSON.parse(v); if(payload) addRow(payload); }
+  }catch(_){}
+})();
+
+function getAns(d,id){ const x=(d.answers||[]).find(a=>a.id===id); return x? x.answer:"-"; }
+function badge(sev,label){
+  const c = sev==="high"?"b-high":sev==="mid"?"b-mid":sev==="low"?"b-low":"b-ok";
+  return `<span class="badge ${c}">${escapeHtml(label||sev)}</span>`;
+}
+function addRow(d){
+  const tr = document.createElement("tr");
+  tr.dataset.sev = d.severity || "ok";
+  tr.dataset.score = Number(d.total_score)||0;
+  tr.innerHTML = `
+    <td>${escapeHtml(d.patient_name||"-")}</td>
+    <td>${escapeHtml(d.operator||"-")}</td>
+    <td>${escapeHtml(d.timestamp||"-")}</td>
+    <td>${escapeHtml(getAns(d,"Q1"))}</td>
+    <td>${escapeHtml(getAns(d,"Q2"))}</td>
+    <td>${escapeHtml(getAns(d,"Q3"))}</td>
+    <td>${Number(d.total_score)||0} / ${Number(d.max_score)||0}</td>
+    <td>${badge(d.severity,d.severity_label)}</td>`;
+  tb.prepend(tr);
+}
+document.getElementById("thEstado").addEventListener("click", ()=>{
+  const rows = Array.from(tb.querySelectorAll("tr"));
+  const asc = tb.dataset.asc === "1" ? false : true;
+  rows.sort((a,b)=>{
+    const sa = sevOrder[a.dataset.sev], sb = sevOrder[b.dataset.sev];
+    if(sa===sb){ return asc ? (a.dataset.score - b.dataset.score) : (b.dataset.score - a.dataset.score); }
+    return asc ? (sa - sb) : (sb - sa);
+  });
+  tb.innerHTML = ""; rows.forEach(r=>tb.appendChild(r));
+  tb.dataset.asc = asc ? "1" : "0";
+});
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+</script>
+</body>
+</html>

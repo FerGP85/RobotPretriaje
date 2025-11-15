@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<title>Pre-Triage | Kiosco (Local)</title>
+<style>
+  :root{ --fg:#0b132b; --muted:#6c757d; --ok:#0f9d58; --low:#f4b400; --mid:#f57c00; --high:#db4437; }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+  html,body{ height:100%; margin:0; }
+  body{ font-family:system-ui,Arial; display:flex; flex-direction:column; background:#f6f7fb; color:var(--fg); }
+  header{ padding:10px 16px; display:flex; gap:12px; align-items:center; border-bottom:1px solid #e5e7eb; background:#fff; }
+  header h1{ font-size:18px; margin:0; flex:1; }
+  .dot{ width:10px; height:10px; border-radius:50%; background:#bbb; }
+  main{ flex:1; display:flex; flex-direction:column; gap:16px; padding:16px; }
+  .card{ background:#fff; border:1px solid #e5e7eb; border-radius:16px; box-shadow:0 1px 10px rgba(0,0,0,.04); }
+  .pane{ padding:16px; }
+  .row{ display:flex; gap:16px; }
+  .col{ flex:1; }
+  label{ display:block; font-size:14px; color:var(--muted); margin-bottom:6px; }
+  input,button{ font-size:18px; padding:12px 14px; border-radius:12px; border:1px solid #d1d5db; width:100%; }
+  .question{ text-align:center; padding:8px 12px 0; }
+  .question h2{ font-size:32px; margin:8px 0 12px; }
+  .grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px; }
+  .bigbtn{ user-select:none; display:flex; align-items:center; justify-content:center; border-radius:20px; font-size:56px; font-weight:800; height:38vh; border:3px solid #101010; }
+  .yes{ background:#e8f5e9; } .no{ background:#ffebee; }
+  .nav{ display:flex; gap:12px; padding:12px; }
+  .nav button{ flex:1; font-size:22px; padding:16px; border-radius:14px; }
+  .pill{ display:inline-block; padding:4px 10px; border-radius:999px; font-weight:700; color:#fff; }
+  .sev-ok{ background:var(--ok); } .sev-low{ background:var(--low); color:#111; }
+  .sev-mid{ background:var(--mid); } .sev-high{ background:var(--high); }
+  .muted{ color:var(--muted); font-size:14px; }
+</style>
+</head>
+<body>
+<header class="pane card">
+  <div class="dot" title="Modo local (sin MQTT)"></div>
+  <h1>Pre-Triage — Kiosco (modo local)</h1>
+  <div class="muted">No usa Internet. Para probar.</div>
+</header>
+
+<main>
+  <section id="setup" class="card pane">
+    <div class="row">
+      <div class="col">
+        <label>Nombre del paciente</label>
+        <input id="patient" placeholder="Nombre completo" autofocus />
+      </div>
+      <div class="col">
+        <label>Quién registra (opcional)</label>
+        <input id="operator" placeholder="Enfermero(a) / Operador" />
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <div class="col"><button id="start">Iniciar cuestionario</button></div>
+    </div>
+  </section>
+
+  <section id="quiz" class="card" style="display:none;">
+    <div class="question">
+      <div id="progress" class="muted">Pregunta 1/3</div>
+      <h2 id="qtext">Pregunta</h2>
+    </div>
+    <div class="grid pane">
+      <button class="bigbtn yes" id="btnYes">SÍ</button>
+      <button class="bigbtn no"  id="btnNo">NO</button>
+    </div>
+    <div class="nav pane">
+      <button id="back">⟵ Atrás</button>
+      <button id="skip">Saltar</button>
+      <button id="cancel" style="background:#ffeaea">Cancelar</button>
+    </div>
+  </section>
+
+  <section id="done" class="card pane" style="display:none;">
+    <h2>Resultado</h2>
+    <p id="resultText" style="font-size:18px;"></p>
+    <div id="sevPill" class="pill sev-ok">No crítico</div>
+    <p class="muted" id="raw">Guardado localmente (sin MQTT)</p>
+    <div class="row" style="margin-top:12px;">
+      <div class="col"><button id="new">Nuevo paciente</button></div>
+    </div>
+  </section>
+</main>
+
+<script>
+/*** CUESTIONARIO / SCORING ***/
+const QUESTIONS = [
+  { id:"Q1", text:"¿Presenta problemas respiratorios?", yes:10, no:0 },
+  { id:"Q2", text:"¿Tiene fiebre?",                     yes:10, no:0 },
+  { id:"Q3", text:"¿Dolor de cabeza?",                  yes:10, no:0 }
+];
+const MAX_SCORE = QUESTIONS.reduce((s,q)=>s+Math.max(q.yes,q.no),0);
+const TH = { low:10, mid:20, high:25 };
+
+let idx=0, answers=[], patient="", operator="";
+const el = id=>document.getElementById(id);
+function sevFromScore(s){ return s>=TH.high ? "high" : s>=TH.mid ? "mid" : s>=TH.low ? "low" : "ok"; }
+function sevLabel(s){ return s==="high"?"Crítico alto": s==="mid"?"Crítico medio": s==="low"?"Crítico bajo":"No crítico"; }
+function nowISO(){ return new Date().toISOString(); }
+
+function showSetup(){ setup.style.display="block"; quiz.style.display="none"; done.style.display="none"; }
+function showQuiz(){  setup.style.display="none";  quiz.style.display="block"; done.style.display="none"; }
+function showDone(){  setup.style.display="none";  quiz.style.display="none";  done.style.display="block"; }
+function renderQ(){ const q=QUESTIONS[idx]; el("qtext").textContent=q.text; el("progress").textContent=`Pregunta ${idx+1}/${QUESTIONS.length}`; }
+
+function pushAns(ans){
+  const q=QUESTIONS[idx];
+  answers[idx] = { id:q.id, answer: ans ? "Si":"No", points: ans ? q.yes : q.no };
+  idx++;
+  if(idx<QUESTIONS.length) renderQ(); else finish();
+}
+function back(){ if(idx>0){ idx--; renderQ(); } }
+
+function publishLocal(payload){
+  // “Simula” publish: guarda en localStorage y dispara evento storage
+  const key = "pretriage_submit";
+  const data = JSON.stringify({ ts: Date.now(), payload });
+  localStorage.setItem(key, data);
+}
+
+function finish(){
+  const total = answers.reduce((s,a)=>s+(a?.points||0),0);
+  const sev = sevFromScore(total);
+  const payload = {
+    patient_name: patient,
+    operator: operator || undefined,
+    timestamp: nowISO(),
+    answers, total_score: total, max_score: MAX_SCORE,
+    severity: sev, severity_label: sevLabel(sev)
+  };
+  publishLocal(payload);
+
+  el("resultText").textContent = `${patient}: ${total}/${MAX_SCORE} → ${sevLabel(sev)}`;  
+  const pill = el("sevPill");
+  pill.textContent = sevLabel(sev);
+  pill.className = "pill " + (sev==="high"?"sev-high":sev==="mid"?"sev-mid":sev==="low"?"sev-low":"sev-ok");
+  el("raw").textContent = "Guardado localmente (dashboard lo leerá)";
+  showDone();
+}
+
+const setup = el("setup"), quiz = el("quiz"), done = el("done");
+el("start").onclick = ()=>{
+  patient = el("patient").value.trim();
+  operator= el("operator").value.trim();
+  if(!patient){ el("patient").focus(); return; }
+  idx=0; answers = new Array(QUESTIONS.length);
+  renderQ(); showQuiz();
+};
+el("btnYes").onclick = ()=> pushAns(true);
+el("btnNo").onclick  = ()=> pushAns(false);
+el("back").onclick   = back;
+el("skip").onclick   = ()=> pushAns(false);
+el("cancel").onclick = showSetup;
+el("new").onclick    = showSetup;
+
+showSetup();
+</script>
+</body>
+</html>
