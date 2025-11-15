@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pre-Triage | Kiosco (Captura + Cuestionario)</title>
+<style>
+  :root{ --fg:#0b132b; --muted:#6c757d; --ok:#0f9d58; --low:#f4b400; --mid:#f57c00; --high:#db4437; }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+  html,body{ height:100%; margin:0; }
+  body{ font-family:system-ui,Arial; display:flex; flex-direction:column; background:#f6f7fb; color:var(--fg); }
+  header{ padding:10px 16px; display:flex; gap:12px; align-items:center; border-bottom:1px solid #e5e7eb; background:#fff; }
+  header h1{ font-size:18px; margin:0; flex:1; }
+  .dot{ width:10px; height:10px; border-radius:50%; background:#bbb; }
+  .dot.ok{ background:#00c853; } .dot.bad{ background:#ef5350; }
+  main{ flex:1; display:flex; flex-direction:column; gap:16px; padding:16px; }
+  .card{ background:#fff; border:1px solid #e5e7eb; border-radius:16px; box-shadow:0 1px 10px rgba(0,0,0,.04); }
+  .pane{ padding:16px; }
+  .row{ display:flex; gap:16px; }
+  .col{ flex:1; }
+  label{ display:block; font-size:14px; color:var(--muted); margin-bottom:6px; }
+  input,button{ font-size:18px; padding:12px 14px; border-radius:12px; border:1px solid #d1d5db; width:100%; }
+  .question{ text-align:center; padding:8px 12px 0; }
+  .question h2{ font-size:32px; margin:8px 0 12px; }
+  .grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px; }
+  .bigbtn{ user-select:none; display:flex; align-items:center; justify-content:center; border-radius:20px; font-size:56px; font-weight:800; height:38vh; border:3px solid #101010; }
+  .yes{ background:#e8f5e9; } .no{ background:#ffebee; }
+  .nav{ display:flex; gap:12px; padding:12px; }
+  .nav button{ flex:1; font-size:22px; padding:16px; border-radius:14px; }
+  .pill{ display:inline-block; padding:4px 10px; border-radius:999px; font-weight:700; color:#fff; }
+  .sev-ok{ background:var(--ok); } .sev-low{ background:var(--low); color:#111; }
+  .sev-mid{ background:var(--mid); } .sev-high{ background:var(--high); }
+  .muted{ color:var(--muted); font-size:14px; }
+  .center{ text-align:center; }
+  .hint{ font-size:15px; color:#444; margin:6px 0 0; }
+  .kpi{ font-size:22px; font-weight:700; }
+  .small{ font-size:13px; color:#666; }
+  progress{ width:100%; height:16px; }
+  .actions{ display:flex; gap:12px; margin-top:12px; }
+  .danger{ background:#ffeaea; }
+</style>
+</head>
+<body>
+<header class="pane card">
+  <div class="dot" id="dot" title="Estado WS"></div>
+  <h1>Pre-Triage — Kiosco</h1>
+  <div class="muted" id="wsurl"></div>
+</header>
+
+<main>
+  <!-- 0) Datos del paciente -->
+  <section id="setup" class="card pane">
+    <div class="row">
+      <div class="col">
+        <label>Nombre del paciente</label>
+        <input id="patient" placeholder="Nombre completo" autofocus />
+      </div>
+      <div class="col">
+        <label>Quién registra (opcional)</label>
+        <input id="operator" placeholder="Enfermero(a) / Operador" />
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <div class="col"><button id="goCapture">Continuar a captura</button></div>
+    </div>
+  </section>
+
+  <!-- 1) Preparación Oxímetro -->
+  <section id="prepHR" class="card pane" style="display:none;">
+    <h2 class="center">Coloca el dedo en el <b>oxímetro</b></h2>
+    <p class="center hint">La medición iniciará automáticamente.</p>
+    <progress id="prepProgHR" max="100" value="0"></progress>
+    <p class="center small">Preparación: <span id="prepSecHR">5</span> s</p>
+  </section>
+
+  <!-- 1b) Captura Oxímetro -->
+  <section id="capHR" class="card pane" style="display:none;">
+    <h2 class="center">Midiendo <b>oxímetro</b></h2>
+    <progress id="progHR" max="100" value="0"></progress>
+    <p class="kpi">HR: <span id="hrNow">--</span> bpm &nbsp;|&nbsp; SpO₂: <span id="spoNow">--</span>%</p>
+    <p class="small" id="hrCount">Muestras válidas: 0</p>
+    <div class="actions">
+      <button id="retryHR">Reintentar</button>
+      <button id="skipHR" class="danger">Omitir (continuar)</button>
+    </div>
+  </section>
+
+  <!-- 2) Preparación Temperatura -->
+  <section id="prepT" class="card pane" style="display:none;">
+    <h2 class="center">Coloca el sensor de <b>temperatura</b> en contacto</h2>
+    <p class="center hint">La medición iniciará automáticamente.</p>
+    <progress id="prepProgT" max="100" value="0"></progress>
+    <p class="center small">Preparación: <span id="prepSecT">5</span> s</p>
+  </section>
+
+  <!-- 2b) Captura Temperatura -->
+  <section id="capT" class="card pane" style="display:none;">
+    <h2 class="center">Midiendo <b>temperatura</b></h2>
+    <progress id="progT" max="100" value="0"></progress>
+    <p class="kpi">To: <span id="toNow">--</span> °C &nbsp;|&nbsp; Ta: <span id="taNow">--</span> °C</p>
+    <p class="small" id="tCount">Muestras: 0</p>
+    <div class="actions">
+      <button id="retryT">Reintentar</button>
+      <button id="skipT" class="danger">Omitir (continuar)</button>
+    </div>
+  </section>
+
+  <!-- 2c) Preparación Peso -->
+<section id="prepW" class="card pane" style="display:none;">
+  <h2 class="center">Súbete a la <b>báscula</b></h2>
+  <p class="center hint">Mantente quieto; la medición iniciará automáticamente.</p>
+  <progress id="prepProgW" max="100" value="0"></progress>
+  <p class="center small">Preparación: <span id="prepSecW">5</span> s</p>
+</section>
+
+<!-- 2d) Captura Peso -->
+<section id="capW" class="card pane" style="display:none;">
+  <h2 class="center">Midiendo <b>peso</b></h2>
+  <progress id="progW" max="100" value="0"></progress>
+  <p class="kpi">Peso: <span id="wNow">--</span> kg</p>
+  <p class="small" id="wCount">Muestras: 0</p>
+  <div class="actions">
+    <button id="retryW">Reintentar</button>
+    <button id="skipW" class="danger">Omitir (continuar)</button>
+  </div>
+</section>
+
+  <!-- 3) Cuestionario -->
+  <section id="quiz" class="card" style="display:none;">
+    <div class="question">
+      <div id="progress" class="muted">Pregunta 1/6</div>
+      <h2 id="qtext">Pregunta</h2>
+    </div>
+    <div class="grid pane">
+      <button class="bigbtn yes" id="btnYes">SÍ</button>
+      <button class="bigbtn no"  id="btnNo">NO</button>
+    </div>
+    <div class="nav pane">
+      <button id="back">⟵ Atrás</button>
+      <button id="skip">Saltar</button>
+      <button id="cancel" class="danger">Cancelar</button>
+    </div>
+  </section>
+
+  <!-- 4) Resultado -->
+  <section id="done" class="card pane" style="display:none;">
+    <h2>Resultado</h2>
+    <p id="resultText" style="font-size:18px;"></p>
+    <div id="sevPill" class="pill sev-ok">No crítico</div>
+    <p class="muted" id="raw"></p>
+    <div class="row" style="margin-top:12px;">
+      <div class="col"><button id="new">Nuevo paciente</button></div>
+    </div>
+  </section>
+</main>
+
+<script>
+/*** CONFIGURABLES (tiempos y mínimos) ***/
+const WS_URL = "ws://10.220.18.110:1880/ws/pretriage";   // <-- AJUSTA
+const PREP_HR_MS = 5000, CAP_HR_MS = 15000;      // 5 s prep + 15 s captura
+const PREP_T_MS  = 5000, CAP_T_MS  = 15000;
+const PREP_W_MS = 5000, CAP_W_MS = 15000;  // 5 s prep + 15 s captura para peso
+const MIN_W_SAMPLES = 1;                    // mínimo de muestras de peso (ajusta)
+const MAX_W_STD = 0.4;                      // (opcional) desviación máx. en kg para considerar estable
+const MIN_HR_OK_SAMPLES = 1;   // mín. muestras HR válidas
+const MIN_SPO_OK_SAMPLES = 1;  // mín. muestras SpO2 válidas
+const MIN_T_SAMPLES = 1;      // mín. muestras To/Ta
+
+/*** PREGUNTAS / SCORING ***/
+const QUESTIONS = [
+  { id:"Q1", text:"¿Presenta problemas respiratorios?", yes:10, no:0 },
+  { id:"Q2", text:"¿Tiene fiebre?",                     yes:10, no:0 },
+  { id:"Q3", text:"¿Dolor de cabeza?",                  yes:10, no:0 },
+  { id:"Q4", text:"¿Sufre desmayos?",                   yes:10, no:0 },
+  { id:"Q5", text:"¿Sufre dolor de forma persistente?", yes:10, no:0 },
+  { id:"Q6", text:"¿Sufre convulsiones?",               yes:10, no:0 }
+];
+const MAX_SCORE = QUESTIONS.reduce((s,q)=>s+Math.max(q.yes,q.no),0);
+const TH = { low:10, mid:20, high:25 };
+function sevFromScore(s){ return s>=TH.high ? "high" : s>=TH.mid ? "mid" : s>=TH.low ? "low" : "ok"; }
+function sevLabel(s){ return s==="high"?"Crítico alto": s==="mid"?"Crítico medio": s==="low"?"Crítico bajo":"No crítico"; }
+function nowISO(){ return new Date().toISOString(); }
+
+/*** ESTADO/UI ***/
+const el = id=>document.getElementById(id);
+const sections = {
+  setup:el("setup"), prepHR:el("prepHR"), capHR:el("capHR"),
+  prepT:el("prepT"), capT:el("capT"),
+  prepW:el("prepW"), capW:el("capW"),
+  quiz:el("quiz"), done:el("done")
+};
+function show(id){ for(const k in sections){ sections[k].style.display = (k===id)?"block":"none"; } }
+document.getElementById('wsurl').textContent = WS_URL;
+
+let ws, wsOpen=false;
+let patient="", operator="";
+let idx=0, answers=[];
+let vitals = { hr:null, spo2:null, To:null, Ta:null, weight:null};
+
+// setup | prep_hr | cap_hr | prep_t | cap_t | quiz | done
+let phase = "setup";
+
+function setDot(ok){ const d=el('dot'); d.classList.toggle('ok',ok); d.classList.toggle('bad',!ok); }
+function wsConnect(){
+  ws = new WebSocket(WS_URL);
+  ws.onopen = ()=>{ wsOpen=true; setDot(true); };
+  ws.onclose= ()=>{ wsOpen=false; setDot(false); setTimeout(wsConnect, 1500); };
+  ws.onerror= ()=>{ wsOpen=false; setDot(false); };
+  ws.onmessage = (ev)=>{
+    try{
+      const msg = JSON.parse(ev.data);
+      if(msg?.type === "vitals") onVitals(msg);
+    }catch(_){}
+  };
+}
+
+/*** CAPTURA ***/
+let capMode = null;               // "hr" | "temp" | "weight"
+let hrVals=[], spoVals=[], toVals=[], taVals=[], wVals=[];
+
+function median(arr){
+  const a = arr.slice().sort((x,y)=>x-y);
+  const n = a.length;
+  if (!n) return null;
+  return (n % 2) ? a[(n-1)/2] : (a[n/2 - 1] + a[n/2]) / 2;
+}
+function avg(arr){
+  if (!arr || !arr.length) return null;
+  return arr.reduce((s,x)=>s + x, 0) / arr.length;
+}
+function stddev(arr){
+  if (!arr || arr.length < 2) return 0;
+  const m = avg(arr);
+  const v = arr.reduce((s,x)=>s + (x-m)*(x-m), 0) / (arr.length-1);
+  return Math.sqrt(v);
+}
+
+
+function stddev(arr){
+  if(arr.length < 2) return 0;
+  const m = avg(arr);
+  const v = arr.reduce((s,x)=>s + (x-m)*(x-m), 0) / (arr.length-1);
+  return Math.sqrt(v);
+}
+
+function onVitals(msg){
+  const v = msg.vitals || {};
+
+  // Peso llega SIEMPRE por WS; sólo colecciona durante la ventana de peso
+  if (capMode === "weight" && isFinite(v.weight_kg)) {
+    const w = Number(v.weight_kg);
+    wVals.push(w);
+    el("wNow").textContent = w.toFixed(1);
+    el("wCount").textContent = `Muestras: ${wVals.length}`;
+  }
+
+  if(capMode === "hr"){
+    if(isFinite(v.hr))  el("hrNow").textContent  = Number(v.hr).toFixed(0);
+    if(isFinite(v.spo2))el("spoNow").textContent = Number(v.spo2).toFixed(0);
+    if(v.hrValid && isFinite(v.hr))     hrVals.push(Number(v.hr));
+    if(v.spo2Valid && isFinite(v.spo2)) spoVals.push(Number(v.spo2));
+    el("hrCount").textContent = `Muestras válidas: HR=${hrVals.length} | SpO₂=${spoVals.length}`;
+  } else if(capMode === "temp"){
+    if(isFinite(v.To)) { toVals.push(Number(v.To)); el("toNow").textContent = Number(v.To).toFixed(1); }
+    if(isFinite(v.Ta)) { taVals.push(Number(v.Ta)); el("taNow").textContent = Number(v.Ta).toFixed(1); }
+    el("tCount").textContent = `Muestras: ${toVals.length}`;
+  }
+}
+
+/* Preparación y captura con progress */
+function runProgress(ms, progEl, secEl, onEnd){
+  const t0 = Date.now();
+  const tick = ()=>{
+    const elapsed = Date.now()-t0;
+    const p = Math.min(100, Math.round(elapsed/ms*100));
+    progEl.value = p;
+    if(secEl){
+      const remain = Math.max(0, Math.ceil((ms-elapsed)/1000));
+      secEl.textContent = remain;
+    }
+    if(elapsed < ms) requestAnimationFrame(tick); else onEnd();
+  };
+  requestAnimationFrame(tick);
+}
+
+/*** HR ***/
+function startPrepHR(){
+  phase = "prep_hr";
+  show("prepHR");
+  runProgress(PREP_HR_MS, el("prepProgHR"), el("prepSecHR"), startCapHR);
+}
+
+function startCapHR(){
+  phase = "cap_hr";
+  capMode = "hr"; 
+  hrVals = []; 
+  spoVals = [];
+  el("hrNow").textContent  = "--";
+  el("spoNow").textContent = "--";
+  el("hrCount").textContent = "Muestras válidas: 0";
+  show("capHR");
+  runProgress(CAP_HR_MS, el("progHR"), null, finishCapHR);
+}
+
+function finishCapHR(){
+  // Si ya no estamos en captura de HR, ignorar este "fin fantasma"
+  if (phase !== "cap_hr") return;
+
+  const ok = (hrVals.length >= MIN_HR_OK_SAMPLES) && (spoVals.length >= MIN_SPO_OK_SAMPLES);
+  if(!ok){
+    if(confirm("No se obtuvieron suficientes muestras del oxímetro.\n¿Deseas continuar sin HR/SpO₂?")){
+      vitals.hr   = hrVals.length  ? median(hrVals)  : null;
+      vitals.spo2 = spoVals.length ? median(spoVals) : null;
+      phase = "prep_t";
+      return startPrepTemp();
+    } else {
+      return startPrepHR();
+    }
+  }
+  vitals.hr   = median(hrVals);
+  vitals.spo2 = median(spoVals);
+  phase = "prep_t";
+  startPrepTemp();
+}
+
+/*** Temperatura ***/
+function startPrepTemp(){
+  phase = "prep_t";
+  show("prepT");
+  runProgress(PREP_T_MS, el("prepProgT"), el("prepSecT"), startCapTemp);
+}
+
+function startCapTemp(){
+  phase = "cap_t";
+  capMode = "temp"; 
+  toVals=[]; 
+  taVals=[];
+  el("toNow").textContent="--"; 
+  el("taNow").textContent="--"; 
+  el("tCount").textContent="Muestras: 0";
+  show("capT");
+  runProgress(CAP_T_MS, el("progT"), null, finishCapTemp);
+}
+
+
+function finishCapTemp(){
+  if (phase !== "cap_t") return;
+
+  const ok = (toVals.length >= MIN_T_SAMPLES);
+  if(!ok){
+    if(confirm("No se obtuvieron suficientes muestras de temperatura.\n¿Deseas continuar sin temperatura?")){
+      vitals.To = toVals.length ? avg(toVals) : null;
+      vitals.Ta = taVals.length ? avg(taVals) : null;
+      // → ir a Peso
+      phase = "prep_w";
+      return startPrepWeight();
+    } else {
+      return startPrepTemp();
+    }
+  }
+  vitals.To = avg(toVals);
+  vitals.Ta = avg(taVals);
+
+  // → ir a Peso
+  phase = "prep_w";
+  startPrepWeight();
+}
+
+function startPrepWeight(){
+  phase = "prep_w";
+  show("prepW");
+  runProgress(PREP_W_MS, el("prepProgW"), el("prepSecW"), startCapWeight);
+}
+
+function startCapWeight(){
+  phase = "cap_w";
+  capMode = "weight";
+  wVals = [];
+  el("wNow").textContent = "--";
+  el("wCount").textContent = "Muestras: 0";
+  show("capW");
+  runProgress(CAP_W_MS, el("progW"), null, finishCapWeight);
+}
+
+function finishCapWeight(){
+  if (phase !== "cap_w") return;
+
+  const enough = (wVals.length >= MIN_W_SAMPLES);
+  let chosen = null;
+
+  if (enough){
+    // Filtro opcional de estabilidad: si std > umbral, usa mediana; si no, promedio
+    const s = stddev(wVals);
+    chosen = (s > MAX_W_STD) ? median(wVals) : avg(wVals);
+  }
+
+  if(!enough){
+    if(confirm("No se obtuvieron suficientes muestras de peso.\n¿Deseas continuar sin peso?")){
+      vitals.weight = null;
+      phase = "quiz";
+      idx=0; answers = new Array(QUESTIONS.length);
+      renderQ(); show("quiz");
+      return;
+    } else {
+      return startPrepWeight();
+    }
+  }
+
+  vitals.weight = Number(chosen.toFixed(1));
+  phase = "quiz";
+  idx=0; answers = new Array(QUESTIONS.length);
+  renderQ(); show("quiz");
+}
+
+
+/*** CUESTIONARIO ***/
+function renderQ(){ 
+  const q=QUESTIONS[idx]; 
+  el("qtext").textContent=q.text; 
+  el("progress").textContent=`Pregunta ${idx+1}/${QUESTIONS.length}`; 
+}
+function pushAns(ans){
+  const q=QUESTIONS[idx];
+  answers[idx] = { id:q.id, answer: ans ? "Si":"No", points: ans ? q.yes : q.no };
+  idx++;
+  if(idx<QUESTIONS.length) renderQ(); else finishAll();
+}
+
+/*** ENVÍO ***/
+function finishAll(){
+  // Sumar con valor inicial = 0 y tolerancia a huecos
+  const total = (answers || []).reduce((s, a) => {
+    const pts = (a && typeof a.points === 'number') ? a.points : 0;
+    return s + pts;
+  }, 0);
+
+  const sev = sevFromScore(total);
+  const payload = {
+    type: "submit",
+    patient_name: patient,
+    operator: operator || undefined,
+    timestamp: nowISO(),
+    answers,
+    total_score: total,
+    max_score: MAX_SCORE,
+    severity: sev,
+    severity_label: sevLabel(sev),
+    vitals: {
+      hr_bpm:   Number.isFinite(vitals.hr)    ? Math.round(vitals.hr)        : null,
+      spo2_pct: Number.isFinite(vitals.spo2)  ? Math.round(vitals.spo2)      : null,
+      To:       Number.isFinite(vitals.To)    ? Number(vitals.To.toFixed(1)) : null,
+      Ta:       Number.isFinite(vitals.Ta)    ? Number(vitals.Ta.toFixed(1)) : null,
+      weight_kg:Number.isFinite(vitals.weight)? Number(vitals.weight.toFixed(1)) : null
+    }
+  };
+
+  // Enviar por WebSocket si está conectado
+  if (wsOpen) {
+    try {
+      ws.send(JSON.stringify(payload));
+      el('raw').textContent = 'Enviado a Node-RED (WS)';
+    } catch(e) {
+      console.error(e);
+      el('raw').textContent = 'No se pudo enviar (WS)';
+    }
+  } else {
+    el('raw').textContent = 'Desconectado (WS)';
+  }
+
+  // Pintar resultado y pasar a la vista final
+  el("resultText").textContent = `${patient}: ${total}/${MAX_SCORE} → ${sevLabel(sev)}`;
+  const pill = el("sevPill");
+  pill.textContent = sevLabel(sev);
+  pill.className = "pill " + (sev==="high"?"sev-high":sev==="mid"?"sev-mid":sev==="low"?"sev-low":"sev-ok");
+
+  phase = "done";
+  show("done");
+}
+
+/*** UI events ***/
+el("goCapture").onclick = ()=>{
+  patient = el("patient").value.trim();
+  operator= el("operator").value.trim();
+  if(!patient){ el("patient").focus(); return; }
+  phase = "prep_hr";
+  startPrepHR();
+};
+
+el("btnYes").onclick = ()=> pushAns(true);
+el("btnNo").onclick  = ()=> pushAns(false);
+el("back").onclick   = ()=>{ if(idx>0){ idx--; renderQ(); } };
+el("skip").onclick   = ()=> pushAns(false);
+
+el("cancel").onclick = ()=>{
+  phase = "setup";
+  vitals = { hr:null, spo2:null, To:null, Ta:null, weight:null }; // <-- añade weight
+  show("setup");
+};
+
+el("new").onclick    = ()=> {
+  patient=""; 
+  operator=""; 
+  vitals={hr:null,spo2:null,To:null,Ta:null,weight:null};
+  el("patient").value=""; 
+  el("operator").value="";
+  phase = "setup";
+  show("setup");
+};
+
+el("retryHR").onclick = startPrepHR;
+el("retryT").onclick  = startPrepTemp;
+el("retryW").onclick = startPrepWeight;
+
+
+
+
+el("skipHR").onclick  = ()=>{
+  // Omitir HR y pasar a temperatura
+  vitals.hr=null; 
+  vitals.spo2=null; 
+  phase = "prep_t";
+  startPrepTemp();
+};
+
+el("skipT").onclick   = ()=>{
+  // Omitir temperatura y pasar a quiz
+  vitals.To=null; 
+  vitals.Ta=null; 
+  phase = "quiz";
+  idx=0; 
+  answers=new Array(QUESTIONS.length); 
+  renderQ(); 
+  show("quiz");
+};
+
+el("skipW").onclick  = ()=>{
+  vitals.weight = null;
+  phase = "quiz";
+  idx=0; answers=new Array(QUESTIONS.length);
+  renderQ(); show("quiz");
+};
+
+wsConnect();
+show("setup");
+</script>
+
+</body>
+</html>

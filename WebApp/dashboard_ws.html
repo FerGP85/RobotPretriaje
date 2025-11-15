@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Pre-Triage | Dashboard (Node-RED WS)</title>
+<style>
+  body{ font-family:system-ui,Arial; margin:24px; background:#f7f8fc; }
+  h1{ margin:0 0 8px 0; }
+  .muted{ color:#6c757d; }
+  table{ width:100%; border-collapse:collapse; background:#fff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; }
+  th,td{ padding:10px 12px; border-bottom:1px solid #e5e7eb; text-align:left; }
+  th.sortable{ cursor:pointer; user-select:none; white-space:nowrap; }
+  tr:nth-child(even){ background:#fafbff; }
+  .badge{ padding:4px 10px; border-radius:999px; font-weight:700; color:#fff; font-size:12px; }
+  .b-ok{ background:#0f9d58; } .b-low{ background:#f4b400; color:#111; }
+  .b-mid{ background:#f57c00; } .b-high{ background:#db4437; }
+  .dot{ width:10px; height:10px; border-radius:50%; display:inline-block; vertical-align:middle; background:#bbb; }
+  .dot.ok{ background:#00c853; } .dot.bad{ background:#ef5350; }
+</style>
+</head>
+<body>
+<h1>Pre-Triage — Pacientes <span class="dot" id="dot"></span></h1>
+<p class="muted">Conectado a <code id="wsurl"></code>. Clic en “Estado” o “Fecha/Hora” para ordenar.</p>
+
+<table id="tbl">
+  <thead>
+    <tr id="thead-row">
+      <!-- Se arma dinámicamente -->
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<script>
+/* ========= CONFIG ========= */
+const WS_URL = "ws://10.220.18.110:1880/ws/pretriage"; // <-- AJUSTA A TU IP/PUERTO
+document.getElementById('wsurl').textContent = WS_URL;
+
+/* ========= WS ========= */
+let ws, wsOpen=false;
+function wsConnect(){
+  ws = new WebSocket(WS_URL);
+  ws.onopen = ()=>{ wsOpen=true; setDot(true); };
+  ws.onclose= ()=>{ wsOpen=false; setDot(false); setTimeout(wsConnect, 2000); };
+  ws.onerror= ()=>{ wsOpen=false; setDot(false); };
+  ws.onmessage = (ev)=>{
+    try{ const d = JSON.parse(ev.data); addRow(d); }catch(_){}
+  };
+}
+function setDot(ok){ const d=document.getElementById('dot'); d.classList.toggle('ok',ok); d.classList.toggle('bad',!ok); }
+
+/* ========= TABLA DINÁMICA ========= */
+const tb = document.querySelector("#tbl tbody");
+const theadRow = document.getElementById("thead-row");
+const sevOrder = { high:3, mid:2, low:1, ok:0 };
+
+/* Guardamos orden dinámico de preguntas y si ya mostramos vitals */
+let colQuestions = [];          // Ej: ["Q1","Q2","Q3",...]
+let hasVitals = false;          // Si ya vimos payload con vitals
+
+/* Estados de orden (toggles) */
+let sortAscSev = true;
+let sortAscDate = false;
+
+/* Construye/actualiza encabezado según columnas actuales */
+function rebuildThead(){
+  theadRow.innerHTML = `
+    <th>Paciente</th>
+    <th>Operador</th>
+    <th class="sortable" id="thFecha">Fecha/Hora ⬍</th>
+  ${hasVitals ? `
+      <th>Temp (°C)</th>
+      <th>Peso (kg)</th>
+      <th>FC (bpm)</th>
+      <th>SpO₂ (%)</th>
+  ` : ``}
+
+
+    ${colQuestions.map(q=>`<th>${escapeHtml(q)}</th>`).join("")}
+    <th>Puntaje</th>
+    <th class="sortable" id="thEstado">Estado ⬍</th>
+  `;
+
+  // Enlazar handlers de ordenamiento
+  document.getElementById("thEstado").addEventListener("click", sortBySeverity);
+  document.getElementById("thFecha").addEventListener("click", sortByDate);
+}
+
+/* Asegura que las columnas incluyan todas las preguntas y vitals si llegan */
+function ensureColumns(d){
+  // Preguntas nuevas -> se agregan al final
+  const ids = (d.answers || []).map(a => a.id).filter(Boolean);
+  let changed = false;
+  for(const id of ids){
+    if(!colQuestions.includes(id)){ colQuestions.push(id); changed = true; }
+  }
+  // Si trae vitals, activamos bloque vitals
+  if(d.vitals && !hasVitals){ hasVitals = true; changed = true; }
+  if(changed){
+    // Rehacer encabezado
+    rebuildThead();
+    // Re-render de filas existentes (para agregar celdas nuevas)
+    for(const tr of Array.from(tb.querySelectorAll("tr"))){
+      const data = JSON.parse(tr.dataset.payload);
+      tr.innerHTML = rowHtml(data);
+    }
+  }
+}
+
+/* Helpers para filas */
+function ansMap(d){
+  const map = {};
+  for(const a of (d.answers||[])){ map[a.id] = a.answer || "-"; }
+  return map;
+}
+function badge(sev,label){
+  const c = sev==="high"?"b-high":sev==="mid"?"b-mid":sev==="low"?"b-low":"b-ok";
+  return `<span class="badge ${c}">${escapeHtml(label||sev||"ok")}</span>`;
+}
+function rowHtml(d){
+  const amap = ansMap(d);
+  const dt = new Date(d.timestamp || Date.now());
+  const nice = dt.toLocaleString(); // mostrado en local
+  const qs  = colQuestions.map(q => `<td>${escapeHtml(amap[q] ?? "-")}</td>`).join("");
+  const vit = hasVitals ? `
+      <td>${escNum(d.vitals?.To ?? d.vitals?.temp_c)}</td>
+      <td>${escNum(d.vitals?.weight_kg)}</td>   <!-- Peso -->
+      <td>${escNum(d.vitals?.hr_bpm)}</td>
+      <td>${escNum(d.vitals?.spo2_pct)}</td>
+    ` : ``;
+
+
+  return `
+    <td>${escapeHtml(d.patient_name||"-")}</td>
+    <td>${escapeHtml(d.operator||"-")}</td>
+    <td>${escapeHtml(nice)}</td>
+    ${vit}
+    ${qs}
+    <td>${Number(d.total_score)||0} / ${Number(d.max_score)||0}</td>
+    <td>${badge(d.severity,d.severity_label)}</td>
+  `;
+}
+
+/* Agregar fila (y preparar para ordenar por fecha/criticidad) */
+function addRow(d){
+  // ⬅️ Solo aceptar mensajes de cierre de cuestionario
+  if (!d || d.type !== "submit") return;
+
+  ensureColumns(d);
+
+  const tr = document.createElement("tr");
+  tr.dataset.sev   = d.severity || "ok";
+  tr.dataset.score = Number(d.total_score)||0;
+  tr.dataset.ts    = Date.parse(d.timestamp || 0) || 0;
+  tr.dataset.payload = JSON.stringify(d); // para re-render si cambian columnas
+  tr.innerHTML = rowHtml(d);
+
+  tb.prepend(tr);
+}
+
+/* ========= ORDENAMIENTOS ========= */
+function sortBySeverity(){
+  const rows = Array.from(tb.querySelectorAll("tr"));
+  sortAscSev = !sortAscSev; // toggle
+  rows.sort((a,b)=>{
+    const sa = sevOrder[a.dataset.sev], sb = sevOrder[b.dataset.sev];
+    if(sa===sb){
+      // desempate por score desc
+      const scA = Number(a.dataset.score)||0, scB = Number(b.dataset.score)||0;
+      return sortAscSev ? (scA - scB) : (scB - scA);
+    }
+    return sortAscSev ? (sa - sb) : (sb - sa);
+  });
+  tb.innerHTML = ""; rows.forEach(r=>tb.appendChild(r));
+}
+
+function sortByDate(){
+  const rows = Array.from(tb.querySelectorAll("tr"));
+  sortAscDate = !sortAscDate; // toggle
+  rows.sort((a,b)=>{
+    const ta = Number(a.dataset.ts)||0, tb_ = Number(b.dataset.ts)||0;
+    if(ta === tb_){
+      // desempate por score desc
+      const scA = Number(a.dataset.score)||0, scB = Number(b.dataset.score)||0;
+      return scB - scA;
+    }
+    return sortAscDate ? (ta - tb_) : (tb_ - ta);
+  });
+  tb.innerHTML = ""; rows.forEach(r=>tb.appendChild(r));
+}
+
+/* ========= UTILS ========= */
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+function escNum(v){ return (v===null||v===undefined||Number.isNaN(Number(v))) ? "-" : String(v); }
+
+/* Inicializa encabezado mínima (sin preguntas ni vitals, se irán agregando) */
+rebuildThead();
+wsConnect();
+</script>
+</body>
+</html>
