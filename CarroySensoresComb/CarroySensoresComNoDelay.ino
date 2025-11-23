@@ -61,6 +61,25 @@ const int ENB = 19;
 const int IN3 = 17;
 const int IN4 = 16;
 
+/****************************************
+ * Sensor ultrasónico anti-caída (HC-SR04)
+ ****************************************/
+const int US_TRIG = 4;
+const int US_ECHO = 5;
+
+// Distancia típica mesa: ~2-3 cm.
+// Si medimos más que esto, asumimos que hay borde.
+const float CLIFF_THRESHOLD_CM = 6.0f;   // Ajusta tras calibrar
+
+// Tiempos de maniobra (ajustar según tu robot)
+const uint32_t BACK_TIME_MS = 600;   // tiempo yendo hacia atrás
+const uint32_t TURN_TIME_MS = 700;   // tiempo girando para ~180°
+
+enum class CliffState : uint8_t { NORMAL, BACKING, TURNING };
+CliffState cliffState = CliffState::NORMAL;
+bool cliffActive = false;
+uint32_t cliffStateStart = 0;
+
 /* ====== PWM ====== */
 // Usamos analogWrite() como en tu código original
 int duty = 160;            // 0..255 velocidad por defecto
@@ -668,6 +687,18 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   String up = msg;
   up.toUpperCase();
 
+  // Si estamos en maniobra anti-caída, ignorar comandos de movimiento
+  if (cliffActive) {
+    // Permitimos STOP/BRAKE para mayor seguridad
+    if (up == "S" || up == "STOP" || up == "BRAKE") {
+      stopMotors();
+      publishCarState("user_stop_during_cliff");
+    } else {
+      publishCarState("cliff_lockout");
+    }
+    return;
+  }
+
   if (up == "F") {
     driveForward();  publishCarState("forward");
     lastCarCmdMs = millis();    // <<< NUEVO
@@ -715,6 +746,90 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
 }
 
+
+/****************************************
+ * Lectura del sensor ultrasónico
+ ****************************************/
+float readCliffDistanceCm() {
+  // Generar pulso de disparo de 10 us en TRIG
+  digitalWrite(US_TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(US_TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(US_TRIG, LOW);
+
+  // Medir duración del pulso de ECHO (hasta 15 ms máx)
+  unsigned long duration = pulseIn(US_ECHO, HIGH, 15000UL);
+
+  if (duration == 0) {
+    // Sin eco claro: lo tratamos como "muy lejos"
+    return 999.0f;
+  }
+
+  // Convertir duración a distancia (cm)
+  // Velocidad sonido ~343 m/s -> 0.0343 cm/us; ida y vuelta -> /2
+  float distanceCm = (duration * 0.0343f) / 2.0f;
+  return distanceCm;
+}
+
+/****************************************
+ * Servicio anti-caída (borde de mesa)
+ ****************************************/
+void cliffService() {
+  static uint32_t lastMeasure = 0;
+  uint32_t now = millis();
+
+  // Si ya estamos en maniobra, manejar la máquina de estados
+  if (cliffState == CliffState::BACKING) {
+    if (now - cliffStateStart >= BACK_TIME_MS) {
+      stopMotors();
+      cliffState = CliffState::TURNING;
+      cliffStateStart = now;
+      turnRight();  // o turnLeft(), como prefieras
+      publishCarState("cliff_turn");
+    }
+    return;
+  }
+
+  if (cliffState == CliffState::TURNING) {
+    if (now - cliffStateStart >= TURN_TIME_MS) {
+      stopMotors();
+      cliffState = CliffState::NORMAL;
+      cliffActive = false;
+      publishCarState("cliff_done");
+    }
+    return;
+  }
+
+  // Si estamos en estado NORMAL, medir cada ~100 ms
+  if (now - lastMeasure < 100) return;
+  lastMeasure = now;
+
+  float d = readCliffDistanceCm();
+
+  // Debug SENSOR ULTRASÓNICO
+  Serial.print("[cliff] d = ");
+  Serial.print(d);
+  Serial.println(" cm");
+
+  if (d > 0 && d > CLIFF_THRESHOLD_CM) {
+    // Se detecta borde / caída
+    Serial.print("[cliff] POSIBLE CAÍDA, d=");
+    Serial.print(d);
+    Serial.println(" cm -> maniobra de escape");
+
+    cliffActive = true;
+    cliffState  = CliffState::BACKING;
+    cliffStateStart = now;
+
+    stopMotors();
+    delay(20);       // mini pausa para asegurar freno
+    driveBackward(); // empezar a retroceder
+    publishCarState("cliff_back");
+  }
+}
+
+
 /****************************************
  * Setup
  ****************************************/
@@ -744,6 +859,11 @@ void setup() {
   analogWrite(ENB, 0);
   stopMotors();
 
+  // Sensor ultrasónico anti-caída
+  pinMode(US_TRIG, OUTPUT);
+  pinMode(US_ECHO, INPUT);
+  digitalWrite(US_TRIG, LOW);
+
   // WiFi + MQTT
   wifiInitStation();
   wifiFindAP(WIFI_SSID);
@@ -759,6 +879,9 @@ void setup() {
  * Loop
  ****************************************/
 void loop() {
+  // 0) Anti-caída primero
+  cliffService();
+
   // 1) Servicio rápido de HR/SpO2
   hrSpO2Service();
 
