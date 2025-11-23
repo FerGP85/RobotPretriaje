@@ -628,22 +628,22 @@ void applyKickIfNeeded(int d){
 }
 
 void driveForward()  {
-  setDirA(+1); setDirB(+1);
-  applyKickIfNeeded(duty);
-  setPWM_A(duty); setPWM_B(duty);
-}
-void driveBackward() {
   setDirA(-1); setDirB(-1);
   applyKickIfNeeded(duty);
   setPWM_A(duty); setPWM_B(duty);
 }
+void driveBackward() {
+  setDirA(+1); setDirB(+1);
+  applyKickIfNeeded(duty);
+  setPWM_A(duty); setPWM_B(duty);
+}
 void turnLeft()  {
-  setDirA(-1); setDirB(+1);
+  setDirA(+1); setDirB(-1);
   applyKickIfNeeded(duty);
   setPWM_A(duty); setPWM_B(duty);
 }
 void turnRight() {
-  setDirA(+1); setDirB(-1);
+  setDirA(-1); setDirB(+1);
   applyKickIfNeeded(duty);
   setPWM_A(duty); setPWM_B(duty);
 }
