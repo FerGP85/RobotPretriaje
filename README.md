@@ -62,3 +62,5 @@ RobotPretriaje-main/
         └── f                         # Archivo de prueba
 ```
 
+# Como empezar
+
