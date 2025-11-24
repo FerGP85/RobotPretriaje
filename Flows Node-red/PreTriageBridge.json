@@ -1,8 +1,15 @@
 [
     {
-        "id": "ws_in",
+        "id": "97d8e83a441af8aa",
+        "type": "tab",
+        "label": "PreTriage Bridge",
+        "disabled": false,
+        "info": "WebSocket (browser) <-> MQTT (broker)"
+    },
+    {
+        "id": "efaca5ac00836c7a",
         "type": "websocket in",
-        "z": "a100000000000001",
+        "z": "97d8e83a441af8aa",
         "name": "WS in (kiosk)",
         "server": "wsPretriage",
         "client": "",
@@ -10,14 +17,14 @@
         "y": 140,
         "wires": [
             [
-                "fn_parse"
+                "4ec373c45f14dd53"
             ]
         ]
     },
     {
-        "id": "fn_parse",
+        "id": "4ec373c45f14dd53",
         "type": "function",
-        "z": "a100000000000001",
+        "z": "97d8e83a441af8aa",
         "name": "Parse/validar JSON",
         "func": "// Espera JSON del kiosk. Asegura objeto y normaliza.\nlet p = msg.payload;\nif (Buffer.isBuffer(p)) p = p.toString();\nif (typeof p === 'string') {\n  try { p = JSON.parse(p); } catch(e){ node.error('JSON inválido de WS', msg); return null; }\n}\nif (!p || typeof p !== 'object') { node.error('Payload no es objeto', msg); return null; }\n// Completa label si falta\nfunction sevLabel(s){\n  if(s==='high') return 'Crítico alto';\n  if(s==='mid')  return 'Crítico medio';\n  if(s==='low')  return 'Crítico bajo';\n  return 'No crítico';\n}\nif (p.severity && !p.severity_label) p.severity_label = sevLabel(p.severity);\nmsg.payload = p;\nreturn msg;",
         "outputs": 1,
@@ -29,15 +36,33 @@
         "y": 140,
         "wires": [
             [
-                "mqtt_submit",
-                "sw_alerts"
+                "15f78377df6cfd1c",
+                "e1ca2b8c36a46820",
+                "e874205c9d75aa6a"
             ]
         ]
     },
     {
-        "id": "mqtt_submit",
+        "id": "e874205c9d75aa6a",
+        "type": "function",
+        "z": "97d8e83a441af8aa",
+        "name": "Guardar por ID",
+        "func": "const p = msg.payload;\n\nif (!p || typeof p !== 'object') {\n  node.warn('Payload no es objeto, no se guarda');\n  return msg;\n}\n\nconst id = p.share_id;\nif (!id) {\n  node.warn('Mensaje sin share_id, no se guarda');\n  return msg;\n}\n\nconst key = 'pretriage_' + id;\nflow.set(key, p);\n\nnode.status({ fill: 'green', shape: 'dot', text: id });\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 690,
+        "y": 80,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "15f78377df6cfd1c",
         "type": "mqtt out",
-        "z": "a100000000000001",
+        "z": "97d8e83a441af8aa",
         "name": "MQTT → pretriage/submit",
         "topic": "pretriage/submit",
         "qos": "",
@@ -53,9 +78,9 @@
         "wires": []
     },
     {
-        "id": "sw_alerts",
+        "id": "e1ca2b8c36a46820",
         "type": "switch",
-        "z": "a100000000000001",
+        "z": "97d8e83a441af8aa",
         "name": "¿mid/high?",
         "property": "payload.severity",
         "propertyType": "msg",
@@ -78,17 +103,17 @@
         "y": 180,
         "wires": [
             [
-                "mqtt_alerts"
+                "7fc97e8c4bbab172"
             ],
             [
-                "mqtt_alerts"
+                "7fc97e8c4bbab172"
             ]
         ]
     },
     {
-        "id": "mqtt_alerts",
+        "id": "7fc97e8c4bbab172",
         "type": "mqtt out",
-        "z": "a100000000000001",
+        "z": "97d8e83a441af8aa",
         "name": "MQTT → pretriage/alerts",
         "topic": "pretriage/alerts",
         "qos": "",
@@ -104,9 +129,9 @@
         "wires": []
     },
     {
-        "id": "mqtt_in_submit",
+        "id": "8d69a574532c7087",
         "type": "mqtt in",
-        "z": "a100000000000001",
+        "z": "97d8e83a441af8aa",
         "name": "MQTT ← pretriage/submit",
         "topic": "pretriage/submit",
         "qos": "0",
@@ -120,14 +145,14 @@
         "y": 240,
         "wires": [
             [
-                "fn_to_ws"
+                "e4d0390ed3ad90c4"
             ]
         ]
     },
     {
-        "id": "fn_to_ws",
+        "id": "e4d0390ed3ad90c4",
         "type": "function",
-        "z": "a100000000000001",
+        "z": "97d8e83a441af8aa",
         "name": "MQTT → WS (string)",
         "func": "let p = msg.payload;\nif (Buffer.isBuffer(p)) p = p.toString();\nif (typeof p !== 'string') p = JSON.stringify(p);\nmsg.payload = p; // WS out espera string\nreturn msg;",
         "outputs": 1,
@@ -139,15 +164,15 @@
         "y": 240,
         "wires": [
             [
-                "ws_out",
-                "dbg"
+                "196643b8f01fc2fe",
+                "52a2cc726c9143fa"
             ]
         ]
     },
     {
-        "id": "ws_out",
+        "id": "196643b8f01fc2fe",
         "type": "websocket out",
-        "z": "a100000000000001",
+        "z": "97d8e83a441af8aa",
         "name": "WS out (broadcast)",
         "server": "wsPretriage",
         "client": "",
@@ -156,9 +181,9 @@
         "wires": []
     },
     {
-        "id": "dbg",
+        "id": "52a2cc726c9143fa",
         "type": "debug",
-        "z": "a100000000000001",
+        "z": "97d8e83a441af8aa",
         "name": "Enviado a WS",
         "active": true,
         "tosidebar": true,
@@ -170,6 +195,53 @@
         "statusType": "auto",
         "x": 680,
         "y": 300,
+        "wires": []
+    },
+    {
+        "id": "b571448d751f9b2a",
+        "type": "http in",
+        "z": "97d8e83a441af8aa",
+        "name": "GET /pretriage/:id",
+        "url": "/pretriage/:id",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 170,
+        "y": 360,
+        "wires": [
+            [
+                "e937de276514b0e1"
+            ]
+        ]
+    },
+    {
+        "id": "e937de276514b0e1",
+        "type": "function",
+        "z": "97d8e83a441af8aa",
+        "name": "Leer por ID",
+        "func": "const id  = msg.req.params.id;\nconst key = 'pretriage_' + id;\n\nconst data = flow.get(key);\n\nif (!data) {\n  msg.statusCode = 404;\n  msg.payload = { error: 'ID no encontrado' };\n} else {\n  msg.statusCode = 200;\n  msg.payload = data;\n}\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 430,
+        "y": 360,
+        "wires": [
+            [
+                "c5ca85bd6d7c4c68"
+            ]
+        ]
+    },
+    {
+        "id": "c5ca85bd6d7c4c68",
+        "type": "http response",
+        "z": "97d8e83a441af8aa",
+        "name": "HTTP respuesta",
+        "statusCode": "",
+        "headers": {},
+        "x": 690,
+        "y": 360,
         "wires": []
     },
     {
