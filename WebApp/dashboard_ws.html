@@ -5,18 +5,203 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Pre-Triage | Dashboard (Node-RED WS)</title>
 <style>
-  body{ font-family:system-ui,Arial; margin:24px; background:#f7f8fc; }
-  h1{ margin:0 0 8px 0; }
-  .muted{ color:#6c757d; }
-  table{ width:100%; border-collapse:collapse; background:#fff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; }
-  th,td{ padding:10px 12px; border-bottom:1px solid #e5e7eb; text-align:left; }
-  th.sortable{ cursor:pointer; user-select:none; white-space:nowrap; }
-  tr:nth-child(even){ background:#fafbff; }
-  .badge{ padding:4px 10px; border-radius:999px; font-weight:700; color:#fff; font-size:12px; }
-  .b-ok{ background:#0f9d58; } .b-low{ background:#f4b400; color:#111; }
-  .b-mid{ background:#f57c00; } .b-high{ background:#db4437; }
-  .dot{ width:10px; height:10px; border-radius:50%; display:inline-block; vertical-align:middle; background:#bbb; }
-  .dot.ok{ background:#00c853; } .dot.bad{ background:#ef5350; }
+  :root{
+    /* Colores base modo oscuro (mismo estilo que el kiosco) */
+    --bg: #020617;
+    --bg-soft: #020617;
+    --bg-elevated: #0b1120;
+    --border-subtle: #1f2937;
+
+    --fg: #e5e7eb;
+    --muted: #9ca3af;
+
+    /* Acento */
+    --accent: #38bdf8;
+    --accent-soft: rgba(56, 189, 248, 0.12);
+
+    /* Severidades */
+    --ok:   #22c55e;
+    --low:  #eab308;
+    --mid:  #f97316;
+    --high: #ef4444;
+  }
+
+  *{
+    box-sizing:border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html,body{
+    margin:0;
+    padding:0;
+  }
+
+  body{
+    font-family:system-ui, -apple-system, BlinkMacSystemFont,"Segoe UI",sans-serif;
+    min-height:100vh;
+    padding:24px;
+    background:
+      radial-gradient(circle at top, #0f172a 0, #020617 45%, #000 100%);
+    color:var(--fg);
+  }
+
+  /******** Títulos / texto ********/
+
+  h1{
+    margin:0 0 8px 0;
+    font-size:22px;
+    font-weight:600;
+    letter-spacing:0.02em;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+
+  .muted{
+    color:var(--muted);
+    font-size:14px;
+    margin:0 0 16px 0;
+  }
+
+  code{
+    background:rgba(15,23,42,0.9);
+    border-radius:6px;
+    padding:2px 6px;
+    border:1px solid var(--border-subtle);
+    color:var(--accent);
+    font-size:13px;
+  }
+
+  /******** Indicador WS ********/
+
+  .dot{
+    width:10px;
+    height:10px;
+    border-radius:50%;
+    display:inline-block;
+    vertical-align:middle;
+    background:#4b5563;
+    box-shadow:0 0 0 4px rgba(148,163,184,0.24);
+  }
+  .dot.ok{
+    background:var(--ok);
+    box-shadow:0 0 0 4px rgba(34,197,94,0.25);
+  }
+  .dot.bad{
+    background:var(--high);
+    box-shadow:0 0 0 4px rgba(239,68,68,0.25);
+  }
+
+  /******** Tabla (card) ********/
+
+  table{
+    width:100%;
+    border-collapse:collapse;
+    background:var(--bg-elevated);
+    border-radius:18px;
+    overflow:hidden;
+    border:1px solid var(--border-subtle);
+    box-shadow:
+      0 18px 45px rgba(15, 23, 42, 0.9),
+      0 0 0 1px rgba(15, 23, 42, 0.6);
+  }
+
+  thead{
+    background:linear-gradient(to right, #020617, #020617, #0b1120);
+  }
+
+  th,td{
+    padding:10px 12px;
+    text-align:left;
+    border-bottom:1px solid rgba(31,41,55,0.9);
+    font-size:13px;
+    white-space:nowrap;
+  }
+
+  th{
+    font-weight:600;
+    color:#e5e7eb;
+    font-size:13px;
+  }
+
+  tbody tr{
+    background:rgba(15,23,42,0.94);
+    transition:background-color 140ms ease-out, transform 80ms ease-out;
+  }
+
+  tbody tr:nth-child(even){
+    background:rgba(15,23,42,0.88);
+  }
+
+  tbody tr:hover{
+    background:rgba(30,64,175,0.45);
+    transform:translateY(-1px);
+  }
+
+  th.sortable{
+    cursor:pointer;
+    user-select:none;
+    white-space:nowrap;
+  }
+
+  th.sortable:hover{
+    color:var(--accent);
+  }
+
+  /******** Badges de severidad ********/
+
+  .badge{
+    padding:4px 10px;
+    border-radius:999px;
+    font-weight:600;
+    color:#f9fafb;
+    font-size:12px;
+    display:inline-flex;
+    align-items:center;
+    gap:4px;
+  }
+
+  .b-ok{
+    background:var(--ok);
+  }
+  .b-low{
+    background:var(--low);
+    color:#111827;
+  }
+  .b-mid{
+    background:var(--mid);
+  }
+  .b-high{
+    background:var(--high);
+  }
+
+  /******** Responsivo ********/
+
+  @media (max-width: 768px){
+    body{
+      padding:16px 10px;
+    }
+
+    h1{
+      font-size:18px;
+      flex-wrap:wrap;
+    }
+
+    .muted{
+      font-size:13px;
+    }
+
+    table{
+      display:block;
+      overflow-x:auto;
+      -webkit-overflow-scrolling:touch;
+    }
+
+    th,td{
+      padding:8px 10px;
+      font-size:12px;
+    }
+  }
 </style>
 </head>
 <body>
@@ -34,7 +219,7 @@
 
 <script>
 /* ========= CONFIG ========= */
-const WS_URL = "ws://10.220.18.110:1880/ws/pretriage"; // <-- AJUSTA A TU IP/PUERTO
+const WS_URL = "ws://10.30.99.110:1880/ws/pretriage"; // <-- AJUSTA A TU IP/PUERTO
 document.getElementById('wsurl').textContent = WS_URL;
 
 /* ========= WS ========= */
