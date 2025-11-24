@@ -5,40 +5,368 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Pre-Triage | Kiosco (Captura + Cuestionario)</title>
 <style>
-  :root{ --fg:#0b132b; --muted:#6c757d; --ok:#0f9d58; --low:#f4b400; --mid:#f57c00; --high:#db4437; }
-  *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
-  html,body{ height:100%; margin:0; }
-  body{ font-family:system-ui,Arial; display:flex; flex-direction:column; background:#f6f7fb; color:var(--fg); }
-  header{ padding:10px 16px; display:flex; gap:12px; align-items:center; border-bottom:1px solid #e5e7eb; background:#fff; }
-  header h1{ font-size:18px; margin:0; flex:1; }
-  .dot{ width:10px; height:10px; border-radius:50%; background:#bbb; }
-  .dot.ok{ background:#00c853; } .dot.bad{ background:#ef5350; }
-  main{ flex:1; display:flex; flex-direction:column; gap:16px; padding:16px; }
-  .card{ background:#fff; border:1px solid #e5e7eb; border-radius:16px; box-shadow:0 1px 10px rgba(0,0,0,.04); }
-  .pane{ padding:16px; }
-  .row{ display:flex; gap:16px; }
-  .col{ flex:1; }
-  label{ display:block; font-size:14px; color:var(--muted); margin-bottom:6px; }
-  input,button{ font-size:18px; padding:12px 14px; border-radius:12px; border:1px solid #d1d5db; width:100%; }
-  .question{ text-align:center; padding:8px 12px 0; }
-  .question h2{ font-size:32px; margin:8px 0 12px; }
-  .grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px; }
-  .bigbtn{ user-select:none; display:flex; align-items:center; justify-content:center; border-radius:20px; font-size:56px; font-weight:800; height:38vh; border:3px solid #101010; }
-  .yes{ background:#e8f5e9; } .no{ background:#ffebee; }
-  .nav{ display:flex; gap:12px; padding:12px; }
-  .nav button{ flex:1; font-size:22px; padding:16px; border-radius:14px; }
-  .pill{ display:inline-block; padding:4px 10px; border-radius:999px; font-weight:700; color:#fff; }
-  .sev-ok{ background:var(--ok); } .sev-low{ background:var(--low); color:#111; }
-  .sev-mid{ background:var(--mid); } .sev-high{ background:var(--high); }
-  .muted{ color:var(--muted); font-size:14px; }
-  .center{ text-align:center; }
-  .hint{ font-size:15px; color:#444; margin:6px 0 0; }
-  .kpi{ font-size:22px; font-weight:700; }
-  .small{ font-size:13px; color:#666; }
-  progress{ width:100%; height:16px; }
-  .actions{ display:flex; gap:12px; margin-top:12px; }
-  .danger{ background:#ffeaea; }
+  :root{
+    /* Colores base modo oscuro */
+    --bg: #020617;
+    --bg-soft: #020617;
+    --bg-elevated: #0b1120;
+    --border-subtle: #1f2937;
+    --fg: #e5e7eb;
+    --muted: #9ca3af;
+
+    /* Acentos */
+    --accent: #38bdf8;
+    --accent-soft: rgba(56, 189, 248, 0.12);
+
+    /* Severidades */
+    --ok:   #22c55e;
+    --low:  #eab308;
+    --mid:  #f97316;
+    --high: #ef4444;
+  }
+
+  *{
+    box-sizing:border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html,body{
+    height:100%;
+    margin:0;
+  }
+
+  body{
+    font-family:system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display:flex;
+    flex-direction:column;
+    background:
+      radial-gradient(circle at top, #0f172a 0, #020617 45%, #000 100%);
+    color:var(--fg);
+  }
+
+  /******** Header ********/
+
+  header{
+    padding:12px 18px;
+    display:flex;
+    gap:12px;
+    align-items:center;
+    border-bottom:1px solid var(--border-subtle);
+    background:rgba(15, 23, 42, 0.9);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border-radius:0 0 18px 18px;
+  }
+
+  header h1{
+    font-size:18px;
+    margin:0;
+    flex:1;
+    font-weight:600;
+    letter-spacing:0.02em;
+  }
+
+  .dot{
+    width:10px;
+    height:10px;
+    border-radius:50%;
+    background:#4b5563;
+    box-shadow:0 0 0 4px rgba(148,163,184,0.24);
+  }
+  .dot.ok{
+    background:var(--ok);
+    box-shadow:0 0 0 4px rgba(34,197,94,0.25);
+  }
+  .dot.bad{
+    background:var(--high);
+    box-shadow:0 0 0 4px rgba(239,68,68,0.25);
+  }
+
+  /******** Layout y tarjetas ********/
+
+  main{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+    padding:16px;
+  }
+
+  .card{
+    background:var(--bg-elevated);
+    border:1px solid var(--border-subtle);
+    border-radius:18px;
+    box-shadow:
+      0 18px 45px rgba(15, 23, 42, 0.8),
+      0 0 0 1px rgba(15, 23, 42, 0.6);
+    overflow:hidden;
+    transition:
+      transform 160ms ease-out,
+      box-shadow 160ms ease-out,
+      border-color 160ms ease-out,
+      background-color 160ms ease-out;
+  }
+
+  .pane{
+    padding:16px;
+  }
+
+  .card:hover{
+    transform:translateY(-1px);
+    border-color:rgba(148,163,184,0.4);
+    box-shadow:
+      0 22px 55px rgba(15, 23, 42, 0.95),
+      0 0 0 1px rgba(148,163,184,0.3);
+  }
+
+  .row{
+    display:flex;
+    gap:16px;
+    flex-wrap:wrap;
+  }
+
+  .col{
+    flex:1;
+    min-width:180px;
+  }
+
+  /******** Formularios ********/
+
+  label{
+    display:block;
+    font-size:13px;
+    color:var(--muted);
+    margin-bottom:6px;
+  }
+
+  input,
+  button{
+    font-family:inherit;
+    font-size:16px;
+    padding:12px 14px;
+    border-radius:12px;
+    border:1px solid var(--border-subtle);
+    width:100%;
+    background:var(--bg-soft);
+    color:var(--fg);
+    outline:none;
+    transition:
+      border-color 140ms ease-out,
+      background-color 140ms ease-out,
+      box-shadow 140ms ease-out,
+      transform 80ms ease-out;
+  }
+
+  input::placeholder{
+    color:rgba(148,163,184,0.7);
+  }
+
+  input:focus{
+    border-color:var(--accent);
+    box-shadow:0 0 0 1px rgba(56,189,248,0.65);
+    background:#020617;
+  }
+
+  /******** Botones ********/
+
+  button{
+    cursor:pointer;
+    background:var(--accent-soft);
+    border-color:rgba(56,189,248,0.5);
+    color:var(--fg);
+    font-weight:500;
+    letter-spacing:0.01em;
+  }
+
+  button:hover{
+    background:rgba(56,189,248,0.18);
+    box-shadow:0 0 0 1px rgba(56,189,248,0.65);
+  }
+
+  button:active{
+    transform:scale(0.98);
+    box-shadow:none;
+  }
+
+  .nav{
+    display:flex;
+    gap:12px;
+    padding:12px 0 0;
+  }
+
+  .nav button{
+    flex:1;
+    font-size:16px;
+    padding:14px;
+    border-radius:14px;
+  }
+
+  .actions{
+    display:flex;
+    gap:12px;
+    margin-top:12px;
+  }
+
+  .danger{
+    background:rgba(239,68,68,0.14);
+    border-color:rgba(239,68,68,0.6);
+    color:#fecaca;
+  }
+
+  .danger:hover{
+    background:rgba(239,68,68,0.22);
+    box-shadow:0 0 0 1px rgba(239,68,68,0.7);
+  }
+
+  /******** Preguntas / layout principal ********/
+
+  .question{
+    text-align:center;
+    padding:4px 12px 0;
+  }
+
+  .question h2{
+    font-size:28px;
+    margin:10px 0 14px;
+    font-weight:600;
+  }
+
+  .grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+    padding:12px 0;
+  }
+
+  .bigbtn{
+    user-select:none;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:20px;
+    font-size:40px;
+    font-weight:800;
+    height:34vh;
+    border:1px solid rgba(148,163,184,0.4);
+    background:radial-gradient(circle at top, #020617 0, #020617 60%, #000 100%);
+    box-shadow:
+      0 14px 30px rgba(15,23,42,0.9),
+      0 0 0 1px rgba(15,23,42,0.7);
+  }
+
+  .bigbtn:hover{
+    box-shadow:
+      0 18px 40px rgba(15,23,42,1),
+      0 0 0 1px rgba(148,163,184,0.6);
+  }
+
+  .yes{
+    background:radial-gradient(circle at top, rgba(34,197,94,0.2), rgba(15,23,42,1));
+    border-color:rgba(34,197,94,0.7);
+    color:#bbf7d0;
+  }
+
+  .no{
+    background:radial-gradient(circle at top, rgba(239,68,68,0.2), rgba(15,23,42,1));
+    border-color:rgba(239,68,68,0.7);
+    color:#fecaca;
+  }
+
+  /******** Etiquetas / textos ********/
+
+  .pill{
+    display:inline-block;
+    padding:4px 12px;
+    border-radius:999px;
+    font-weight:600;
+    color:#f9fafb;
+    font-size:13px;
+  }
+
+  .sev-ok{
+    background:var(--ok);
+  }
+  .sev-low{
+    background:var(--low);
+    color:#111827;
+  }
+  .sev-mid{
+    background:var(--mid);
+  }
+  .sev-high{
+    background:var(--high);
+  }
+
+  .muted{
+    color:var(--muted);
+    font-size:13px;
+  }
+
+  .center{
+    text-align:center;
+  }
+
+  .hint{
+    font-size:14px;
+    color:var(--muted);
+    margin:6px 0 0;
+  }
+
+  .kpi{
+    font-size:22px;
+    font-weight:600;
+    margin-top:12px;
+  }
+
+  .small{
+    font-size:12px;
+    color:var(--muted);
+  }
+
+  /******** Progress bars ********/
+
+  progress{
+    width:100%;
+    height:10px;
+    border-radius:999px;
+    overflow:hidden;
+    background:#020617;
+    border:1px solid var(--border-subtle);
+  }
+
+  progress::-webkit-progress-bar{
+    background:#020617;
+  }
+  progress::-webkit-progress-value{
+    background:var(--accent);
+  }
+  progress::-moz-progress-bar{
+    background:var(--accent);
+  }
+
+  /******** Responsivo ********/
+
+  @media (max-width: 768px){
+    header{
+      padding:10px 14px;
+    }
+    header h1{
+      font-size:16px;
+    }
+    main{
+      padding:10px;
+      gap:12px;
+    }
+    .pane{
+      padding:12px;
+    }
+    .bigbtn{
+      font-size:32px;
+      height:30vh;
+    }
+  }
 </style>
+
 </head>
 <body>
 <header class="pane card">
@@ -60,6 +388,20 @@
         <input id="operator" placeholder="Enfermero(a) / Operador" />
       </div>
     </div>
+
+    <!-- NUEVA FILA: edad y estatura -->
+    <div class="row" style="margin-top:10px;">
+      <div class="col">
+        <label>Edad</label>
+        <input id="age" type="number" min="0" max="120" placeholder="Años" />
+      </div>
+      <div class="col">
+        <label>Estatura</label>
+        <input id="height" type="number" min="80" max="230" placeholder="cm" />
+      </div>
+    </div>
+    <!-- FIN NUEVA FILA -->
+
     <div class="row" style="margin-top:10px;">
       <div class="col"><button id="goCapture">Continuar a captura</button></div>
     </div>
@@ -156,7 +498,7 @@
 
 <script>
 /*** CONFIGURABLES (tiempos y mínimos) ***/
-const WS_URL = "ws://10.220.18.110:1880/ws/pretriage";   // <-- AJUSTA
+const WS_URL = "ws://10.30.99.110:1880/ws/pretriage";   // <-- AJUSTA
 const PREP_HR_MS = 5000, CAP_HR_MS = 15000;      // 5 s prep + 15 s captura
 const PREP_T_MS  = 5000, CAP_T_MS  = 15000;
 const PREP_W_MS = 5000, CAP_W_MS = 15000;  // 5 s prep + 15 s captura para peso
@@ -167,18 +509,125 @@ const MIN_SPO_OK_SAMPLES = 1;  // mín. muestras SpO2 válidas
 const MIN_T_SAMPLES = 1;      // mín. muestras To/Ta
 
 /*** PREGUNTAS / SCORING ***/
+/*** PREGUNTAS / SCORING (sí/no, ya con pesos clínicos) ***/
 const QUESTIONS = [
-  { id:"Q1", text:"¿Presenta problemas respiratorios?", yes:10, no:0 },
-  { id:"Q2", text:"¿Tiene fiebre?",                     yes:10, no:0 },
-  { id:"Q3", text:"¿Dolor de cabeza?",                  yes:10, no:0 },
-  { id:"Q4", text:"¿Sufre desmayos?",                   yes:10, no:0 },
-  { id:"Q5", text:"¿Sufre dolor de forma persistente?", yes:10, no:0 },
-  { id:"Q6", text:"¿Sufre convulsiones?",               yes:10, no:0 }
+  // Bloque A: signos de alarma (pueden disparar ROJO directo)
+  { id:"Q1", text:"¿Te falta el aire incluso estando sentado o en reposo?", yes:5, no:0, emergencyIfYes:true },
+  { id:"Q2", text:"¿Sientes un dolor u opresión muy fuerte en el pecho que no se quita?", yes:5, no:0, emergencyIfYes:true },
+  { id:"Q3", text:"¿Has tenido desmayos o pérdida de conciencia recientemente?", yes:5, no:0, emergencyIfYes:true },
+  { id:"Q4", text:"¿Te notas muy confundido/a o con mucha dificultad para mantenerte despierto/a?", yes:5, no:0, emergencyIfYes:true },
+  { id:"Q5", text:"¿Tus labios o dedos se ponen morados o azulados?", yes:6, no:0, emergencyIfYes:true },
+
+  // Bloque B/C: síntomas y factores de riesgo
+  { id:"Q6",  text:"¿Tienes síntomas (fiebre, tos, dolor) desde hace más de 3 días?", yes:2, no:0 },
+  { id:"Q7",  text:"¿Tu dificultad para respirar ha empeorado con el tiempo?", yes:3, no:0 },
+  { id:"Q8",  text:"¿Te cuesta mucho trabajo caminar dentro de la sala sin quedarte sin aire?", yes:3, no:0 },
+  { id:"Q9",  text:"¿Tu dolor es intenso (7 a 10 en la escala del 0 al 10)?", yes:3, no:0 },
+  { id:"Q10", text:"¿Tienes vómito tan frecuente que casi no puedes comer o tomar líquidos?", yes:3, no:0 },
+  { id:"Q11", text:"¿Tienes alguna enfermedad crónica importante (corazón, pulmones, riñón, diabetes, cáncer, VIH u otra inmunosupresión)?", yes:3, no:0 },
+  { id:"Q12", text:"¿Te han dicho que tienes obesidad o sobrepeso importante?", yes:2, no:0 }
 ];
-const MAX_SCORE = QUESTIONS.reduce((s,q)=>s+Math.max(q.yes,q.no),0);
-const TH = { low:10, mid:20, high:25 };
-function sevFromScore(s){ return s>=TH.high ? "high" : s>=TH.mid ? "mid" : s>=TH.low ? "low" : "ok"; }
-function sevLabel(s){ return s==="high"?"Crítico alto": s==="mid"?"Crítico medio": s==="low"?"Crítico bajo":"No crítico"; }
+
+// Máximo de puntos de LAS PREGUNTAS (no incluye sensores)
+const MAX_SCORE = QUESTIONS.reduce((s,q)=>s + Math.max(q.yes, q.no), 0);
+
+// Mismo mapeo de etiqueta por severidad
+function sevLabel(s){
+  return s==="high" ? "Crítico alto"
+       : s==="mid"  ? "Crítico medio"
+       : s==="low"  ? "Crítico bajo"
+       :              "No crítico";
+}
+// Calcula los puntos de sensores (T, SpO2, HR, IMC, edad)
+function scoreVitals(vitals, ageYears, heightCm){
+  let score = 0;
+  let emergency = false;
+
+  const T   = Number.isFinite(vitals.To)    ? vitals.To   : null;
+  const spo = Number.isFinite(vitals.spo2)  ? vitals.spo2 : null;
+  const hr  = Number.isFinite(vitals.hr)    ? vitals.hr   : null;
+  const w   = Number.isFinite(vitals.weight)? vitals.weight : null;
+
+  let bmi = null;
+  if (Number.isFinite(w) && Number.isFinite(heightCm) && heightCm > 0){
+    const h = heightCm / 100;
+    bmi = w / (h*h);
+  }
+
+  // Temperatura
+  if (T !== null){
+    if (T >= 35.5 && T <= 37.4) score += 0;
+    else if (T >= 37.5 && T <= 37.9) score += 1;
+    else if (T >= 38.0 && T <= 38.9) score += 2;
+    else if (T >= 39.0 && T <= 39.9) score += 3;
+    else if (T >= 40.0 || T <= 35.4){
+      score += 4;
+      if (T >= 40.0) emergency = true; // fiebre muy alta
+    }
+  }
+
+  // SpO2
+  if (spo !== null){
+    if (spo >= 96) score += 0;
+    else if (spo >= 94) score += 2;
+    else if (spo >= 92) score += 4;
+    else {
+      score += 6;
+      emergency = true;           // hipoxia importante
+    }
+  }
+
+  // Frecuencia cardiaca
+  if (hr !== null){
+    if (hr >= 60 && hr <= 99) score += 0;
+    else if (hr >= 100 && hr <= 119) score += 1;
+    else if (hr >= 120 && hr <= 139) score += 3;
+    else if (hr >= 140) score += 4;
+    else if (hr < 50) score += 3;
+  }
+
+  // Edad
+  if (Number.isFinite(ageYears)){
+    if (ageYears >= 65) score += 2;
+    else if (ageYears >= 40) score += 1;
+  }
+
+  // IMC
+  if (bmi !== null){
+    if (bmi >= 30 || bmi < 18) score += 2;
+  }
+
+  return { sensorsScore: score, bmi, emergencyFromVitals: emergency };
+}
+
+// Combina sensores + preguntas y asigna nivel
+function computeSeverity(vitals, questionScore, emergencyFromQuestions, ageYears, heightCm){
+  const { sensorsScore, bmi, emergencyFromVitals } = scoreVitals(vitals, ageYears, heightCm);
+  const total = sensorsScore + questionScore;
+  const emergency = emergencyFromVitals || emergencyFromQuestions;
+
+  let sev;
+  if (emergency){
+    sev = "high"; // ROJO automático
+  } else if (total >= 13){
+    sev = "high";
+  } else if (total >= 9){
+    sev = "mid";
+  } else if (total >= 5){
+    sev = "low";
+  } else {
+    sev = "ok";
+  }
+
+  return {
+    total,
+    sensorsScore,
+    bmi,
+    severity: sev,
+    severityLabel: sevLabel(sev),
+    emergency
+  };
+}
 function nowISO(){ return new Date().toISOString(); }
 
 /*** ESTADO/UI ***/
@@ -194,6 +643,7 @@ document.getElementById('wsurl').textContent = WS_URL;
 
 let ws, wsOpen=false;
 let patient="", operator="";
+let age = null, heightCm = null;  // <-- NUEVO
 let idx=0, answers=[];
 let vitals = { hr:null, spo2:null, To:null, Ta:null, weight:null};
 
@@ -421,36 +871,62 @@ function renderQ(){
 }
 function pushAns(ans){
   const q=QUESTIONS[idx];
-  answers[idx] = { id:q.id, answer: ans ? "Si":"No", points: ans ? q.yes : q.no };
+  answers[idx] = {
+  id:      q.id,
+  answer:  ans ? "Si" : "No",
+  points:  ans ? q.yes : q.no,
+  emergency: ans && q.emergencyIfYes === true
+};
   idx++;
   if(idx<QUESTIONS.length) renderQ(); else finishAll();
 }
 
 /*** ENVÍO ***/
 function finishAll(){
-  // Sumar con valor inicial = 0 y tolerancia a huecos
-  const total = (answers || []).reduce((s, a) => {
-    const pts = (a && typeof a.points === 'number') ? a.points : 0;
-    return s + pts;
-  }, 0);
+  // Resumen de preguntas: puntaje total + si hay alguna de emergencia
+  const qSummary = (answers || []).reduce((acc, a) => {
+    if (!a) return acc;
+    const pts = (typeof a.points === "number") ? a.points : 0;
+    acc.questionScore += pts;
+    if (a.emergency === true) acc.emergencyFromQuestions = true;
+    return acc;
+  }, { questionScore:0, emergencyFromQuestions:false });
 
-  const sev = sevFromScore(total);
+  // Calcular severidad combinando sensores + preguntas
+  const sevData = computeSeverity(
+    vitals,
+    qSummary.questionScore,
+    qSummary.emergencyFromQuestions,
+    age,
+    heightCm
+  );
+
+  // Payload que se manda a Node-RED
   const payload = {
     type: "submit",
     patient_name: patient,
     operator: operator || undefined,
     timestamp: nowISO(),
+
+    age_years: Number.isFinite(age) ? age : null,
+    height_cm: Number.isFinite(heightCm) ? Number(heightCm.toFixed(1)) : null,
+    bmi: Number.isFinite(sevData.bmi) ? Number(sevData.bmi.toFixed(1)) : null,
+
     answers,
-    total_score: total,
-    max_score: MAX_SCORE,
-    severity: sev,
-    severity_label: sevLabel(sev),
+    question_score: qSummary.questionScore,
+    sensor_score: sevData.sensorsScore,
+    total_score: sevData.total,
+    max_score: MAX_SCORE,   // Máx. de preguntas (los sensores no tienen tope fijo)
+    severity: sevData.severity,
+    severity_label: sevData.severityLabel,
+
     vitals: {
-      hr_bpm:   Number.isFinite(vitals.hr)    ? Math.round(vitals.hr)        : null,
-      spo2_pct: Number.isFinite(vitals.spo2)  ? Math.round(vitals.spo2)      : null,
-      To:       Number.isFinite(vitals.To)    ? Number(vitals.To.toFixed(1)) : null,
-      Ta:       Number.isFinite(vitals.Ta)    ? Number(vitals.Ta.toFixed(1)) : null,
-      weight_kg:Number.isFinite(vitals.weight)? Number(vitals.weight.toFixed(1)) : null
+      hr_bpm:    Number.isFinite(vitals.hr)    ? Math.round(vitals.hr)        : null,
+      spo2_pct:  Number.isFinite(vitals.spo2)  ? Math.round(vitals.spo2)      : null,
+      To:        Number.isFinite(vitals.To)    ? Number(vitals.To.toFixed(1)) : null,
+      Ta:        Number.isFinite(vitals.Ta)    ? Number(vitals.Ta.toFixed(1)) : null,
+      weight_kg: Number.isFinite(vitals.weight)? Number(vitals.weight.toFixed(1)) : null,
+      bmi:       Number.isFinite(sevData.bmi)  ? Number(sevData.bmi.toFixed(1)) : null
     }
   };
 
@@ -467,11 +943,20 @@ function finishAll(){
     el('raw').textContent = 'Desconectado (WS)';
   }
 
-  // Pintar resultado y pasar a la vista final
-  el("resultText").textContent = `${patient}: ${total}/${MAX_SCORE} → ${sevLabel(sev)}`;
+  // Mostrar resumen en el kiosco
+  const txt = `${patient}: total ${sevData.total} ` +
+              `(preguntas: ${qSummary.questionScore}, sensores: ${sevData.sensorsScore}) → ${sevData.severityLabel}`;
+
+  el("resultText").textContent = txt;
+
   const pill = el("sevPill");
-  pill.textContent = sevLabel(sev);
-  pill.className = "pill " + (sev==="high"?"sev-high":sev==="mid"?"sev-mid":sev==="low"?"sev-low":"sev-ok");
+  pill.textContent = sevData.severityLabel;
+  pill.className = "pill " + (
+    sevData.severity==="high" ? "sev-high" :
+    sevData.severity==="mid"  ? "sev-mid"  :
+    sevData.severity==="low"  ? "sev-low"  :
+                                "sev-ok"
+  );
 
   phase = "done";
   show("done");
@@ -479,12 +964,25 @@ function finishAll(){
 
 /*** UI events ***/
 el("goCapture").onclick = ()=>{
-  patient = el("patient").value.trim();
-  operator= el("operator").value.trim();
-  if(!patient){ el("patient").focus(); return; }
+  patient  = el("patient").value.trim();
+  operator = el("operator").value.trim();
+  age      = parseInt(el("age").value, 10);
+  heightCm = parseFloat(el("height").value);
+
+  if(!patient){
+    el("patient").focus(); 
+    return;
+  }
+
+  if (!Number.isFinite(age) || !Number.isFinite(heightCm)){
+    alert("Por favor, ingresa edad y estatura.");
+    return;
+  }
+
   phase = "prep_hr";
   startPrepHR();
 };
+
 
 el("btnYes").onclick = ()=> pushAns(true);
 el("btnNo").onclick  = ()=> pushAns(false);
@@ -493,26 +991,28 @@ el("skip").onclick   = ()=> pushAns(false);
 
 el("cancel").onclick = ()=>{
   phase = "setup";
-  vitals = { hr:null, spo2:null, To:null, Ta:null, weight:null }; // <-- añade weight
+  vitals = { hr:null, spo2:null, To:null, Ta:null, weight:null };
+  age = null; heightCm = null;                    // <-- NUEVO
   show("setup");
 };
 
 el("new").onclick    = ()=> {
   patient=""; 
   operator=""; 
+  age=null; heightCm=null;                        // <-- NUEVO
   vitals={hr:null,spo2:null,To:null,Ta:null,weight:null};
   el("patient").value=""; 
   el("operator").value="";
+  el("age").value="";
+  el("height").value="";
   phase = "setup";
   show("setup");
 };
 
+
 el("retryHR").onclick = startPrepHR;
 el("retryT").onclick  = startPrepTemp;
 el("retryW").onclick = startPrepWeight;
-
-
-
 
 el("skipHR").onclick  = ()=>{
   // Omitir HR y pasar a temperatura
