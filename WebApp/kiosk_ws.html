@@ -323,6 +323,24 @@
     color:var(--muted);
   }
 
+
+  #qrCanvas {
+  width: 320px;          /* que coincida con lo que pones en JS */
+  height: 320px;
+  margin: 0 auto 8px;    /* centrado y con poquito margen abajo */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:#ffffff;    /* fondo blanco */
+  border-radius:12px;
+  border:1px solid #1f2937;
+}
+
+/* que el QR se vea nítido (sin suavizado) */
+#qrCanvas canvas {
+  image-rendering: pixelated;
+}
+
   /******** Progress bars ********/
 
   progress{
@@ -489,6 +507,21 @@
     <h2>Resultado</h2>
     <p id="resultText" style="font-size:18px;"></p>
     <div id="sevPill" class="pill sev-ok">No crítico</div>
+    <div id="shareBox"
+     style="margin-top:14px; display:flex; flex-direction:column;
+            gap:12px; align-items:center; text-align:center;">
+
+  <div id="qrCanvas"></div>
+
+  <div>
+    <div class="muted">Escanea este QR o abre el enlace:</div>
+    <input id="shareLink" readonly style="margin-top:6px; width:100%; font-size:13px; padding:10px 12px; border-radius:10px;">
+    <div class="actions">
+      <button id="copyLink">Copiar enlace</button>
+      <button id="downloadPNG">Descargar PNG</button>
+    </div>
+  </div>
+</div>
     <p class="muted" id="raw"></p>
     <div class="row" style="margin-top:12px;">
       <div class="col"><button id="new">Nuevo paciente</button></div>
@@ -496,9 +529,12 @@
   </section>
 </main>
 
+<script src="qrcode.min.js"></script>
+
+
 <script>
 /*** CONFIGURABLES (tiempos y mínimos) ***/
-const WS_URL = "ws://10.30.99.110:1880/ws/pretriage";   // <-- AJUSTA
+const WS_URL = "ws://10.25.82.235:1880/ws/pretriage";   // <-- AJUSTA
 const PREP_HR_MS = 5000, CAP_HR_MS = 15000;      // 5 s prep + 15 s captura
 const PREP_T_MS  = 5000, CAP_T_MS  = 15000;
 const PREP_W_MS = 5000, CAP_W_MS = 15000;  // 5 s prep + 15 s captura para peso
@@ -685,13 +721,6 @@ function stddev(arr){
   return Math.sqrt(v);
 }
 
-
-function stddev(arr){
-  if(arr.length < 2) return 0;
-  const m = avg(arr);
-  const v = arr.reduce((s,x)=>s + (x-m)*(x-m), 0) / (arr.length-1);
-  return Math.sqrt(v);
-}
 
 function onVitals(msg){
   const v = msg.vitals || {};
@@ -882,8 +911,10 @@ function pushAns(ans){
 }
 
 /*** ENVÍO ***/
+/*** ENVÍO ***/
+/*** ENVÍO ***/
 function finishAll(){
-  // Resumen de preguntas: puntaje total + si hay alguna de emergencia
+  // 1) Resumen preguntas
   const qSummary = (answers || []).reduce((acc, a) => {
     if (!a) return acc;
     const pts = (typeof a.points === "number") ? a.points : 0;
@@ -892,7 +923,7 @@ function finishAll(){
     return acc;
   }, { questionScore:0, emergencyFromQuestions:false });
 
-  // Calcular severidad combinando sensores + preguntas
+  // 2) Severidad
   const sevData = computeSeverity(
     vitals,
     qSummary.questionScore,
@@ -901,9 +932,13 @@ function finishAll(){
     heightCm
   );
 
-  // Payload que se manda a Node-RED
+  // 2.5) Generar ID corto para este registro
+  const shareId = makeShareId();
+
+  // 3) Payload para Node-RED (incluye share_id)
   const payload = {
     type: "submit",
+    share_id: shareId,                 // <--- NUEVO
     patient_name: patient,
     operator: operator || undefined,
     timestamp: nowISO(),
@@ -916,7 +951,7 @@ function finishAll(){
     question_score: qSummary.questionScore,
     sensor_score: sevData.sensorsScore,
     total_score: sevData.total,
-    max_score: MAX_SCORE,   // Máx. de preguntas (los sensores no tienen tope fijo)
+    max_score: MAX_SCORE,
     severity: sevData.severity,
     severity_label: sevData.severityLabel,
 
@@ -930,23 +965,23 @@ function finishAll(){
     }
   };
 
-  // Enviar por WebSocket si está conectado
+  // 4) Enviar por WebSocket a Node-RED
   if (wsOpen) {
-    try {
-      ws.send(JSON.stringify(payload));
-      el('raw').textContent = 'Enviado a Node-RED (WS)';
-    } catch(e) {
-      console.error(e);
-      el('raw').textContent = 'No se pudo enviar (WS)';
+    try { 
+      ws.send(JSON.stringify(payload)); 
+      el('raw').textContent = 'Enviado a Node-RED (WS)'; 
+    }
+    catch(e){ 
+      console.error(e); 
+      el('raw').textContent = 'No se pudo enviar (WS)'; 
     }
   } else {
     el('raw').textContent = 'Desconectado (WS)';
   }
 
-  // Mostrar resumen en el kiosco
-  const txt = `${patient}: total ${sevData.total} ` +
-              `(preguntas: ${qSummary.questionScore}, sensores: ${sevData.sensorsScore}) → ${sevData.severityLabel}`;
-
+  // 5) Resumen en pantalla
+  const txt = `${patient}: total ${sevData.total} (preguntas: ${qSummary.questionScore}, ` +
+              `sensores: ${sevData.sensorsScore}) → ${sevData.severityLabel}`;
   el("resultText").textContent = txt;
 
   const pill = el("sevPill");
@@ -954,13 +989,19 @@ function finishAll(){
   pill.className = "pill " + (
     sevData.severity==="high" ? "sev-high" :
     sevData.severity==="mid"  ? "sev-mid"  :
-    sevData.severity==="low"  ? "sev-low"  :
-                                "sev-ok"
+    sevData.severity==="low"  ? "sev-low"  : "sev-ok"
   );
 
+  // 6) URL para compartir: SOLO lleva el ID
+  const shareURL = makeShareURL(shareId);
+  renderQR(shareURL);
+
+  // 7) Mostrar pantalla final
   phase = "done";
   show("done");
 }
+
+
 
 /*** UI events ***/
 el("goCapture").onclick = ()=>{
@@ -1022,16 +1063,13 @@ el("skipHR").onclick  = ()=>{
   startPrepTemp();
 };
 
-el("skipT").onclick   = ()=>{
-  // Omitir temperatura y pasar a quiz
-  vitals.To=null; 
-  vitals.Ta=null; 
-  phase = "quiz";
-  idx=0; 
-  answers=new Array(QUESTIONS.length); 
-  renderQ(); 
-  show("quiz");
+el("skipT").onclick = ()=>{
+  vitals.To = null;
+  vitals.Ta = null;
+  phase = "prep_w";
+  startPrepWeight();     // ← en vez de ir a 'quiz'
 };
+
 
 el("skipW").onclick  = ()=>{
   vitals.weight = null;
@@ -1042,7 +1080,87 @@ el("skipW").onclick  = ()=>{
 
 wsConnect();
 show("setup");
-</script>
 
+// ===== Helpers para compartir (Base64URL + QR) =====
+
+// ===== Helpers para compartir (Base64URL + QR) =====
+//MAKESHAREURL
+
+// ===== Helpers para compartir (ID corto + URL corta) =====
+
+// Genera un ID cortito tipo "A3F9XZ"
+function makeShareId(){
+  return Math.random().toString(36).slice(2, 8).toUpperCase();
+}
+
+// Construye la URL de share.html en la misma carpeta que kiosk.html
+// Ej: http://10.30.99.110:1880/share.html?id=ABC123
+function makeShareURL(id){
+  const basePath = location.pathname.replace(/[^/]+$/,'');  // carpeta actual
+  const base = `${location.protocol}//${location.host}${basePath}`;
+  return `${base}share.html?id=${encodeURIComponent(id)}`;
+}
+
+
+// Render de QR directamente en el <canvas id="qrCanvas">
+// Render de QR usando la librería qrcode.min.js (new QRCode)
+function renderQR(url){
+  const box  = document.getElementById('qrCanvas'); // contenedor
+  const link = document.getElementById('shareLink');
+  link.value = url;
+
+  if (!box) {
+    console.error('No se encontró #qrCanvas');
+    return;
+  }
+
+  // Limpia cualquier QR previo
+  box.innerHTML = '';
+
+  // Verificar que la librería esté cargada
+  if (typeof QRCode === 'undefined') {
+    console.error('Librería QRCode no cargada');
+    box.textContent = 'Sin librería QR';
+    return;
+  }
+
+  // Generar el QR dentro del contenedor
+  new QRCode(box, {
+    text: String(url),
+    width: 320,          // más grande
+    height: 320,
+    colorDark: "#000000", // negro puro
+    colorLight: "#ffffff",// fondo blanco (máximo contraste)
+    correctLevel: QRCode.CorrectLevel.L
+  });
+
+
+  // Botones de copiar y descargar
+  document.getElementById('copyLink').onclick = async ()=>{
+    try {
+      await navigator.clipboard.writeText(url);
+      alert('Enlace copiado');
+    } catch(_){
+      alert('No se pudo copiar el enlace');
+    }
+  };
+
+  document.getElementById('downloadPNG').onclick = ()=>{
+    // buscar el <canvas> interno que crea la librería
+    const innerCanvas = box.querySelector('canvas');
+    if (!innerCanvas) {
+      alert('No se pudo encontrar el canvas del QR');
+      return;
+    }
+    const href = innerCanvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.download = 'pretriage_qr.png';
+    a.href = href;
+    a.click();
+  };
+}
+
+
+</script>
 </body>
 </html>
