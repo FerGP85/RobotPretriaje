@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Resultado de Pre-Triage</title>
+<style>
+  body{
+    margin:0;
+    font-family:system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background:#020617;
+    color:#e5e7eb;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    min-height:100vh;
+    padding:16px;
+  }
+  .card{
+    background:#0b1120;
+    border:1px solid #1f2937;
+    border-radius:18px;
+    padding:20px 24px;
+    max-width:720px;
+    width:100%;
+    box-shadow:0 18px 45px rgba(15,23,42,0.9);
+  }
+  h1{
+    margin-top:0;
+    margin-bottom:8px;
+    font-size:22px;
+  }
+  .pill{
+    display:inline-block;
+    padding:4px 12px;
+    border-radius:999px;
+    font-weight:600;
+    font-size:13px;
+    margin-top:6px;
+  }
+  .sev-ok{  background:#22c55e; }
+  .sev-low{ background:#eab308; color:#111827; }
+  .sev-mid{ background:#f97316; }
+  .sev-high{background:#ef4444; }
+
+  .muted{ color:#9ca3af; font-size:13px; }
+  .section-title{
+    margin-top:18px;
+    margin-bottom:6px;
+    font-size:15px;
+    font-weight:600;
+  }
+
+  .grid{
+    display:grid;
+    grid-template-columns:1.2fr 1fr;
+    gap:16px;
+  }
+
+  table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:13px;
+    margin-top:6px;
+  }
+  th, td{
+    padding:6px 8px;
+    border-bottom:1px solid #1f2937;
+    vertical-align:top;
+  }
+  th{
+    text-align:left;
+    color:#e5e7eb;
+    font-weight:600;
+  }
+  tr:nth-child(even) td{
+    background:#020617;
+  }
+
+  .tag{
+    display:inline-block;
+    padding:2px 6px;
+    border-radius:999px;
+    font-size:11px;
+    font-weight:600;
+  }
+  .tag-yes{ background:#22c55e33; color:#bbf7d0; }
+  .tag-no{  background:#ef444433; color:#fecaca; }
+  .tag-em{
+    background:#ef4444;
+    color:#fee2e2;
+  }
+
+  @media (max-width: 720px){
+    .grid{
+      grid-template-columns:1fr;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Resultado de Pre-Triage</h1>
+  <div id="content" class="muted">Cargando...</div>
+</div>
+
+<script>
+// Mismo texto de preguntas que en kiosk.html
+const QUESTION_TEXT = {
+  Q1:"¿Te falta el aire incluso estando sentado o en reposo?",
+  Q2:"¿Sientes un dolor u opresión muy fuerte en el pecho que no se quita?",
+  Q3:"¿Has tenido desmayos o pérdida de conciencia recientemente?",
+  Q4:"¿Te notas muy confundido/a o con mucha dificultad para mantenerte despierto/a?",
+  Q5:"¿Tus labios o dedos se ponen morados o azulados?",
+  Q6:"¿Tienes síntomas (fiebre, tos, dolor) desde hace más de 3 días?",
+  Q7:"¿Tu dificultad para respirar ha empeorado con el tiempo?",
+  Q8:"¿Te cuesta mucho trabajo caminar dentro de la sala sin quedarte sin aire?",
+  Q9:"¿Tu dolor es intenso (7 a 10 en la escala del 0 al 10)?",
+  Q10:"¿Tienes vómito tan frecuente que casi no puedes comer o tomar líquidos?",
+  Q11:"¿Tienes alguna enfermedad crónica importante (corazón, pulmones, riñón, diabetes, cáncer, VIH u otra inmunosupresión)?",
+  Q12:"¿Te han dicho que tienes obesidad o sobrepeso importante?"
+};
+
+function getIdFromURL(){
+  const params = new URLSearchParams(location.search);
+  return params.get('id');
+}
+
+function sevLabelClass(sev){
+  return sev === "high" ? "sev-high" :
+         sev === "mid"  ? "sev-mid"  :
+         sev === "low"  ? "sev-low"  : "sev-ok";
+}
+
+(function main(){
+  const id  = getIdFromURL();
+  const box = document.getElementById('content');
+
+  if (!id){
+    box.textContent = "No se proporcionó ID en la URL.";
+    return;
+  }
+
+  box.textContent = "Cargando datos para ID " + id + "...";
+
+  fetch("/pretriage/" + encodeURIComponent(id))
+    .then(res =>{
+      if (!res.ok) throw new Error("No encontrado");
+      return res.json();
+    })
+    .then(p =>{
+      const sev      = p.severity || "ok";
+      const sevLabel = p.severity_label || "No crítico";
+
+      const hr   = p.vitals?.hr_bpm;
+      const spo  = p.vitals?.spo2_pct;
+      const To   = p.vitals?.To;
+      const Ta   = p.vitals?.Ta;
+      const wKg  = p.vitals?.weight_kg;
+      const bmi  = p.bmi ?? p.vitals?.bmi ?? null;
+      const age  = p.age_years ?? null;
+      const hcm  = p.height_cm ?? null;
+
+      const answers = Array.isArray(p.answers) ? p.answers : [];
+
+      const questionsRows = answers.map(a =>{
+        const txt = QUESTION_TEXT[a.id] || a.id;
+        const ans = (a.answer === "Si" ? "Sí" : "No");
+        const isYes = (a.answer === "Si");
+        const em  = (a.emergency === true);
+        return `
+          <tr>
+            <td>${a.id}</td>
+            <td>${txt}</td>
+            <td>
+              <span class="tag ${isYes ? "tag-yes" : "tag-no"}">${ans}</span>
+              ${em ? '<span class="tag tag-em" style="margin-left:4px;">Alarma</span>' : ""}
+            </td>
+            <td>${typeof a.points === "number" ? a.points : "—"}</td>
+          </tr>
+        `;
+      }).join("") || `
+          <tr><td colspan="4">No se registraron respuestas de cuestionario.</td></tr>
+      `;
+
+      box.innerHTML = `
+        <div class="grid">
+          <div>
+            <p><b>Paciente:</b> ${p.patient_name || "—"}</p>
+            <p><b>Registrado por:</b> ${p.operator || "—"}</p>
+            <p><b>Fecha/hora:</b> ${p.timestamp || "—"}</p>
+            <p><b>Puntaje total:</b> ${p.total_score} (preguntas: ${p.question_score}, sensores: ${p.sensor_score})</p>
+            <p><span class="pill ${sevLabelClass(sev)}">${sevLabel}</span></p>
+          </div>
+          <div>
+            <div class="section-title">Signos vitales</div>
+            <p><b>HR:</b> ${hr ?? "—"} bpm</p>
+            <p><b>SpO₂:</b> ${spo ?? "—"} %</p>
+            <p><b>Tº (cuerpo):</b> ${To ?? "—"} °C</p>
+            <p><b>Tº (ambiente):</b> ${Ta ?? "—"} °C</p>
+            <p><b>Peso:</b> ${wKg ?? "—"} kg</p>
+            <p><b>Edad:</b> ${age ?? "—"} años</p>
+            <p><b>Estatura:</b> ${hcm ?? "—"} cm</p>
+            <p><b>IMC:</b> ${bmi ?? "—"}</p>
+          </div>
+        </div>
+
+        <div class="section-title">Detalle de preguntas</div>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Pregunta</th>
+              <th>Respuesta</th>
+              <th>Puntos</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${questionsRows}
+          </tbody>
+        </table>
+      `;
+    })
+    .catch(err =>{
+      console.error(err);
+      box.textContent = "No se encontraron datos para este ID o ocurrió un error al cargar.";
+    });
+})();
+</script>
+</body>
+</html>
