@@ -59,7 +59,6 @@ RobotPretriaje-main/
     └── LocalTests/
         ├── kiosk_local.html          # Kiosco offline (sin WS)
         ├── dashboard_local.html      # Dashboard offline
-        └── f                         # Archivo de prueba
 ```
 
 # Como empezar
