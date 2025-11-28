@@ -6,7 +6,7 @@
 <title>Pre-Triage | Dashboard (Node-RED WS)</title>
 <style>
   :root{
-    /* Colores base modo oscuro (mismo estilo que el kiosco) */
+    /*Colores base modo oscuro*/
     --bg: #020617;
     --bg-soft: #020617;
     --bg-elevated: #0b1120;
@@ -219,7 +219,7 @@
 
 <script>
 /* ========= CONFIG ========= */
-const WS_URL = "ws://10.25.82.235:1880/ws/pretriage"; // <-- AJUSTA A TU IP/PUERTO
+const WS_URL = "ws://10.25.82.235:1880/ws/pretriage"; // <-- AJUSTAR IP
 document.getElementById('wsurl').textContent = WS_URL;
 
 /* ========= WS ========= */
@@ -329,7 +329,7 @@ function rowHtml(d){
 
 /* Agregar fila (y preparar para ordenar por fecha/criticidad) */
 function addRow(d){
-  // ⬅️ Solo aceptar mensajes de cierre de cuestionario
+  // Solo aceptar mensajes de cierre de cuestionario
   if (!d || d.type !== "submit") return;
 
   ensureColumns(d);
@@ -387,3 +387,4 @@ wsConnect();
 </script>
 </body>
 </html>
+
