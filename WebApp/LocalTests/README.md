@@ -1,2 +1,2 @@
 # OUTDATED FILES
-# UPTDATED ONES AT RobotPretriaje/WebApp/LocalTests
+# UPTDATED ONES AT RobotPretriaje/WebApp/
