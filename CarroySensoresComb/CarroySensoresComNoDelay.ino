@@ -1,5 +1,5 @@
 /****************************************
- * Includes comunes
+ * Includes
  ****************************************/
 #include <WiFi.h>
 #include <PubSubClient.h>
@@ -69,9 +69,9 @@ const int US_ECHO = 5;
 
 // Distancia típica mesa: ~2-3 cm.
 // Si medimos más que esto, asumimos que hay borde.
-const float CLIFF_THRESHOLD_CM = 6.0f;   // Ajusta tras calibrar
+const float CLIFF_THRESHOLD_CM = 6.0f;   // Sujeto a calibración
 
-// Tiempos de maniobra (ajustar según tu robot)
+// Tiempos de maniobra
 const uint32_t BACK_TIME_MS = 600;   // tiempo yendo hacia atrás
 const uint32_t TURN_TIME_MS = 700;   // tiempo girando para ~180°
 
@@ -81,17 +81,16 @@ bool cliffActive = false;
 uint32_t cliffStateStart = 0;
 
 /* ====== PWM ====== */
-// Usamos analogWrite() como en tu código original
-int duty = 160;            // 0..255 velocidad por defecto
-const int KICK_DUTY = 255; // golpe inicial opcional
+int duty = 160;            // 0..255 velocidad por defecto, cambiado a 160 por las baterías usadas
+const int KICK_DUTY = 255; // kick inicial opcional
 const int KICK_MS   = 120; // duración del kick (ms)
-bool useKick = false;      // true si quieres el "golpe" inicial
+bool useKick = false;      // Kick usado para comprobar el funcionamiento de motores, TRUE para activar
 
 // Prototipo de callback MQTT (para poder usarlo en mqttSetup)
 void mqttCallback(char* topic, byte* payload, unsigned int length);
 
 /****************************************
- * I²C único (Wire) para sensores
+ * I²C único (Wire) para sensores temp y oxímetro
  ****************************************/
 #define I2C_SDA    21
 #define I2C_SCL    22
@@ -196,8 +195,7 @@ bool initMAX30102() {
     return false;
   }
 
-  // Sube brillo y baja tasa de muestreo a 25 Hz (igual que FreqS del algoritmo)
-  byte ledBrightness = 0x8F;  // antes 0x1F
+    byte ledBrightness = 0x8F;
   byte sampleAverage = 4;
   byte ledMode       = 2;     // Rojo + IR
   int  sampleRate    = 25;    // Hz, para que coincida con FreqS=25
@@ -222,7 +220,7 @@ void hrSpO2Service() {
   static uint32_t redBuffer[BUFFER_SIZE];
   static int idx = 0;
 
-  // Si no hay dedo, reseteamos índice y salimos rápido
+  // Si no hay dedo, resetea índice y salimos rápido
   if (!hasFingerGlobal) {
     idx = 0;
     return;
@@ -231,7 +229,7 @@ void hrSpO2Service() {
   // Actualizar FIFO del sensor
   particleSensor.check();
 
-  // Leer todas las muestras disponibles SIN bloqueos largos
+  // Leer todas las muestras disponibles sin bloqueos largos
   while (particleSensor.available()) {
     redBuffer[idx] = particleSensor.getRed();
     irBuffer[idx]  = particleSensor.getIR();
@@ -252,13 +250,13 @@ void hrSpO2Service() {
       spo2Valid_last = spo2Valid;
       hrSpo2Ready    = true;
 
-      idx = 0;  // empezamos de nuevo para el siguiente cálculo
-      break;    // solo calculamos una vez por buffer lleno
+      idx = 0;  // Comienza de nuevo para el siguiente cálculo
+      break;    // Se calcula una vez por buffer lleno
     }
   }
 }
 
-
+//Lectura de temperaturas
 bool readTemps(double &Ta, double &To) {
   if (!mlxOK) { Ta = NAN; To = NAN; return false; }
   Ta = mlx.readAmbientTempC();
@@ -278,7 +276,7 @@ bool fingerPresent() {
   double sum = 0.0, sum2 = 0.0;
   int samples = 0;
 
-  // Leemos hasta N muestras SI están disponibles, sin esperar
+  // Leemos hasta N muestras SI están disponibles
   for (int i = 0; i < N; i++) {
     particleSensor.check();
     if (!particleSensor.available()) continue;
@@ -291,7 +289,7 @@ bool fingerPresent() {
     samples++;
   }
 
-  // Si casi no hay muestras, asumimos que no hay dedo
+  // Si casi no hay muestras, se asume que no hay dedo
   if (samples < 4) {
     hasFingerGlobal = false;
     return false;
@@ -308,7 +306,7 @@ bool fingerPresent() {
 
   hasFingerGlobal = present;
 
-  // Debug (si ves que estorba, luego lo comentas)
+  // Debug (Comentarse de ser necesario)
   Serial.print("[finger] mean=");
   Serial.print(mean);
   Serial.print(" std=");
@@ -474,7 +472,7 @@ void mqttSetup(){
   client.setKeepAlive(30);
   client.setSocketTimeout(5);
   client.setBufferSize(256);
-  client.setCallback(mqttCallback);      // <-- para comandos del carro
+  client.setCallback(mqttCallback);      // Comandos del carro
 }
 
 void mqttService(){
@@ -598,7 +596,7 @@ void scaleService() {
   uint32_t now = millis();
 
   const uint32_t SCAN_PERIOD_MS      = 5000; // cada 5 s
-  const uint32_t NO_SCAN_AFTER_CMD_MS = 2000; // 2 s después de mover el carro, NO escanees
+  const uint32_t NO_SCAN_AFTER_CMD_MS = 2000; // 2 s después de mover el carro, NO escanea
 
   // Si hace poco se envió un comando al carro, no bloquees con BLE
   if (now - lastCarCmdMs < NO_SCAN_AFTER_CMD_MS) {
@@ -646,6 +644,7 @@ void applyKickIfNeeded(int d){
   }
 }
 
+//Direcciones del carro
 void driveForward()  {
   setDirA(-1); setDirB(-1);
   applyKickIfNeeded(duty);
@@ -667,6 +666,7 @@ void turnRight() {
   setPWM_A(duty); setPWM_B(duty);
 }
 
+// Estado del carro visto en NODE-RED
 void publishCarState(const char* state) {
   if (client.connected()) {
     client.publish(TOPIC_STATE, state);
@@ -676,8 +676,7 @@ void publishCarState(const char* state) {
 /****************************************
  * MQTT callback: comandos del carro
  ****************************************/
-void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  // Solo nos interesan los mensajes de car/cmd
+void mqttCallback(char* topic, byte* payload, unsigned int length)
   if (strcmp(topic, TOPIC_CMD) != 0) return;
 
   String msg; msg.reserve(length);
@@ -687,7 +686,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   String up = msg;
   up.toUpperCase();
 
-  // Si estamos en maniobra anti-caída, ignorar comandos de movimiento
+  // Si está en maniobra anti-caída, ignorar comandos de movimiento
   if (cliffActive) {
     // Permitimos STOP/BRAKE para mayor seguridad
     if (up == "S" || up == "STOP" || up == "BRAKE") {
@@ -698,10 +697,10 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     }
     return;
   }
-
+//Payloads a NODE-RED
   if (up == "F") {
     driveForward();  publishCarState("forward");
-    lastCarCmdMs = millis();    // <<< NUEVO
+    lastCarCmdMs = millis();
     return;
   }
   if (up == "B") {
@@ -785,7 +784,7 @@ void cliffService() {
       stopMotors();
       cliffState = CliffState::TURNING;
       cliffStateStart = now;
-      turnRight();  // o turnLeft(), como prefieras
+      turnRight();
       publishCarState("cliff_turn");
     }
     return;
@@ -807,10 +806,12 @@ void cliffService() {
 
   float d = readCliffDistanceCm();
 
-  // Debug SENSOR ULTRASÓNICO
+  // Debug SENSOR ULTRASÓNICO (Comentado para no estorbar en el monitor serial de Arduino)
+  /*
   Serial.print("[cliff] d = ");
   Serial.print(d);
   Serial.println(" cm");
+  */
 
   if (d > 0 && d > CLIFF_THRESHOLD_CM) {
     // Se detecta borde / caída
@@ -882,7 +883,7 @@ void loop() {
   // 0) Anti-caída primero
   cliffService();
 
-  // 1) Servicio rápido de HR/SpO2
+  // 1) Servicio de HR/SpO2
   hrSpO2Service();
 
   // 2) Servicios de red
@@ -907,7 +908,7 @@ void loop() {
     int32_t s2 = -1; int8_t s2Valid = 0;
 
     if (hasFinger && hrSpo2Ready) {
-      // Consumimos la última medición disponible
+      // Usa la última medición disponible cuando ya no detecta otra
       hr        = hr_last;
       hrValid   = hrValid_last;
       s2        = spo2_last;
@@ -934,7 +935,7 @@ void loop() {
     float weight_for_json = (!isnan(lastWeightKg) && (now - lastWeightAt <= WEIGHT_FRESH_MS))
                               ? lastWeightKg : -1.0f;
 
-    // Debug Serial
+    // Debug Serial para sensores y báscula, excepto ultrasónico
     Serial.print("Ta=");
     if (tempOK) Serial.print(Ta, 1); else Serial.print("NaN");
     Serial.print("C | To=");
