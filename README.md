@@ -61,5 +61,3 @@ RobotPretriaje-main/
         ├── dashboard_local.html      # Dashboard offline
 ```
 
-# Como empezar
-
