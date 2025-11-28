@@ -323,20 +323,18 @@
     color:var(--muted);
   }
 
-
   #qrCanvas {
-  width: 320px;          /* que coincida con lo que pones en JS */
+  width: 320px;
   height: 320px;
-  margin: 0 auto 8px;    /* centrado y con poquito margen abajo */
+  margin: 0 auto 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background:#ffffff;    /* fondo blanco */
+  background:#ffffff;
   border-radius:12px;
   border:1px solid #1f2937;
 }
 
-/* que el QR se vea nítido (sin suavizado) */
 #qrCanvas canvas {
   image-rendering: pixelated;
 }
@@ -406,8 +404,6 @@
         <input id="operator" placeholder="Enfermero(a) / Operador" />
       </div>
     </div>
-
-    <!-- NUEVA FILA: edad y estatura -->
     <div class="row" style="margin-top:10px;">
       <div class="col">
         <label>Edad</label>
@@ -418,7 +414,6 @@
         <input id="height" type="number" min="80" max="230" placeholder="cm" />
       </div>
     </div>
-    <!-- FIN NUEVA FILA -->
 
     <div class="row" style="margin-top:10px;">
       <div class="col"><button id="goCapture">Continuar a captura</button></div>
@@ -534,18 +529,17 @@
 
 <script>
 /*** CONFIGURABLES (tiempos y mínimos) ***/
-const WS_URL = "ws://10.25.82.235:1880/ws/pretriage";   // <-- AJUSTA
+const WS_URL = "ws://10.25.82.235:1880/ws/pretriage";   // <-- AJUSTAR IP, DEBE SER LA MISMA EN KIOSK Y DASHBOARD
 const PREP_HR_MS = 5000, CAP_HR_MS = 15000;      // 5 s prep + 15 s captura
 const PREP_T_MS  = 5000, CAP_T_MS  = 15000;
 const PREP_W_MS = 5000, CAP_W_MS = 15000;  // 5 s prep + 15 s captura para peso
 const MIN_W_SAMPLES = 1;                    // mínimo de muestras de peso (ajusta)
-const MAX_W_STD = 0.4;                      // (opcional) desviación máx. en kg para considerar estable
+const MAX_W_STD = 0.4;                      // Desviación máx. en kg para considerar estable
 const MIN_HR_OK_SAMPLES = 1;   // mín. muestras HR válidas
 const MIN_SPO_OK_SAMPLES = 1;  // mín. muestras SpO2 válidas
 const MIN_T_SAMPLES = 1;      // mín. muestras To/Ta
 
 /*** PREGUNTAS / SCORING ***/
-/*** PREGUNTAS / SCORING (sí/no, ya con pesos clínicos) ***/
 const QUESTIONS = [
   // Bloque A: signos de alarma (pueden disparar ROJO directo)
   { id:"Q1", text:"¿Te falta el aire incluso estando sentado o en reposo?", yes:5, no:0, emergencyIfYes:true },
@@ -679,7 +673,7 @@ document.getElementById('wsurl').textContent = WS_URL;
 
 let ws, wsOpen=false;
 let patient="", operator="";
-let age = null, heightCm = null;  // <-- NUEVO
+let age = null, heightCm = null;
 let idx=0, answers=[];
 let vitals = { hr:null, spo2:null, To:null, Ta:null, weight:null};
 
@@ -782,7 +776,6 @@ function startCapHR(){
 }
 
 function finishCapHR(){
-  // Si ya no estamos en captura de HR, ignorar este "fin fantasma"
   if (phase !== "cap_hr") return;
 
   const ok = (hrVals.length >= MIN_HR_OK_SAMPLES) && (spoVals.length >= MIN_SPO_OK_SAMPLES);
@@ -840,7 +833,7 @@ function finishCapTemp(){
   vitals.To = avg(toVals);
   vitals.Ta = avg(taVals);
 
-  // → ir a Peso
+  // ir a Peso
   phase = "prep_w";
   startPrepWeight();
 }
@@ -868,7 +861,7 @@ function finishCapWeight(){
   let chosen = null;
 
   if (enough){
-    // Filtro opcional de estabilidad: si std > umbral, usa mediana; si no, promedio
+    // Si std > umbral, usa mediana; si no, promedio
     const s = stddev(wVals);
     chosen = (s > MAX_W_STD) ? median(wVals) : avg(wVals);
   }
@@ -911,8 +904,6 @@ function pushAns(ans){
 }
 
 /*** ENVÍO ***/
-/*** ENVÍO ***/
-/*** ENVÍO ***/
 function finishAll(){
   // 1) Resumen preguntas
   const qSummary = (answers || []).reduce((acc, a) => {
@@ -935,10 +926,10 @@ function finishAll(){
   // 2.5) Generar ID corto para este registro
   const shareId = makeShareId();
 
-  // 3) Payload para Node-RED (incluye share_id)
+  // 3) Payload para Node-RED
   const payload = {
     type: "submit",
-    share_id: shareId,                 // <--- NUEVO
+    share_id: shareId,
     patient_name: patient,
     operator: operator || undefined,
     timestamp: nowISO(),
@@ -992,7 +983,7 @@ function finishAll(){
     sevData.severity==="low"  ? "sev-low"  : "sev-ok"
   );
 
-  // 6) URL para compartir: SOLO lleva el ID
+  // 6) URL para compartir
   const shareURL = makeShareURL(shareId);
   renderQR(shareURL);
 
@@ -1033,14 +1024,14 @@ el("skip").onclick   = ()=> pushAns(false);
 el("cancel").onclick = ()=>{
   phase = "setup";
   vitals = { hr:null, spo2:null, To:null, Ta:null, weight:null };
-  age = null; heightCm = null;                    // <-- NUEVO
+  age = null; heightCm = null;
   show("setup");
 };
 
 el("new").onclick    = ()=> {
   patient=""; 
   operator=""; 
-  age=null; heightCm=null;                        // <-- NUEVO
+  age=null; heightCm=null;
   vitals={hr:null,spo2:null,To:null,Ta:null,weight:null};
   el("patient").value=""; 
   el("operator").value="";
@@ -1067,7 +1058,7 @@ el("skipT").onclick = ()=>{
   vitals.To = null;
   vitals.Ta = null;
   phase = "prep_w";
-  startPrepWeight();     // ← en vez de ir a 'quiz'
+  startPrepWeight();     // en vez de ir a 'quiz'
 };
 
 
@@ -1080,11 +1071,6 @@ el("skipW").onclick  = ()=>{
 
 wsConnect();
 show("setup");
-
-// ===== Helpers para compartir (Base64URL + QR) =====
-
-// ===== Helpers para compartir (Base64URL + QR) =====
-//MAKESHAREURL
 
 // ===== Helpers para compartir (ID corto + URL corta) =====
 
@@ -1100,9 +1086,6 @@ function makeShareURL(id){
   const base = `${location.protocol}//${location.host}${basePath}`;
   return `${base}share.html?id=${encodeURIComponent(id)}`;
 }
-
-
-// Render de QR directamente en el <canvas id="qrCanvas">
 // Render de QR usando la librería qrcode.min.js (new QRCode)
 function renderQR(url){
   const box  = document.getElementById('qrCanvas'); // contenedor
@@ -1127,15 +1110,15 @@ function renderQR(url){
   // Generar el QR dentro del contenedor
   new QRCode(box, {
     text: String(url),
-    width: 320,          // más grande
+    width: 320,
     height: 320,
-    colorDark: "#000000", // negro puro
-    colorLight: "#ffffff",// fondo blanco (máximo contraste)
+    colorDark: "#000000",
+    colorLight: "#ffffff",
     correctLevel: QRCode.CorrectLevel.L
   });
 
 
-  // Botones de copiar y descargar
+  // Botones de copiar y descargar (fallo en copy, ambas próximas a arreglo o eliminación)
   document.getElementById('copyLink').onclick = async ()=>{
     try {
       await navigator.clipboard.writeText(url);
@@ -1146,7 +1129,6 @@ function renderQR(url){
   };
 
   document.getElementById('downloadPNG').onclick = ()=>{
-    // buscar el <canvas> interno que crea la librería
     const innerCanvas = box.querySelector('canvas');
     if (!innerCanvas) {
       alert('No se pudo encontrar el canvas del QR');
@@ -1164,3 +1146,4 @@ function renderQR(url){
 </script>
 </body>
 </html>
+
