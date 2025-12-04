@@ -23,7 +23,7 @@ const char* WIFI_SSID = "Fercio";
 const char* WIFI_PASS = "TW1A2P3D";
 
 /****************************************
- * MQTT (mismo broker para todo)
+ * MQTT
  ****************************************/
 const char* MQTT_SERVER    = "broker.hivemq.com";
 const int   MQTT_PORT      = 1883;
@@ -47,7 +47,7 @@ const char* TOPIC_HR      = "esp32/health/hr";
 const char* TOPIC_SPO2    = "esp32/health/spo2";
 const char* TOPIC_TA      = "esp32/health/ta";
 const char* TOPIC_TO      = "esp32/health/to";
-const char* TOPIC_SCALE   = "esp32/scale/weight_kg";   // peso por MQTT
+const char* TOPIC_SCALE   = "esp32/scale/weight_kg";
 
 /****************************************
  * Pines del carro (L298N con PWM)
@@ -67,13 +67,9 @@ const int IN4 = 16;
 const int US_TRIG = 4;
 const int US_ECHO = 5;
 
-// Distancia típica mesa: ~2-3 cm.
-// Si medimos más que esto, asumimos que hay borde.
-const float CLIFF_THRESHOLD_CM = 6.0f;   // Sujeto a calibración
-
-// Tiempos de maniobra
-const uint32_t BACK_TIME_MS = 600;   // tiempo yendo hacia atrás
-const uint32_t TURN_TIME_MS = 700;   // tiempo girando para ~180°
+const float CLIFF_THRESHOLD_CM = 6.0f;
+const uint32_t BACK_TIME_MS = 600;
+const uint32_t TURN_TIME_MS = 700;
 
 enum class CliffState : uint8_t { NORMAL, BACKING, TURNING };
 CliffState cliffState = CliffState::NORMAL;
@@ -81,37 +77,36 @@ bool cliffActive = false;
 uint32_t cliffStateStart = 0;
 
 /* ====== PWM ====== */
-int duty = 160;            // 0..255 velocidad por defecto, cambiado a 160 por las baterías usadas
-const int KICK_DUTY = 255; // kick inicial opcional
-const int KICK_MS   = 120; // duración del kick (ms)
-bool useKick = false;      // Kick usado para comprobar el funcionamiento de motores, TRUE para activar
+int duty = 160;
+const int KICK_DUTY = 255;
+const int KICK_MS   = 120;
+bool useKick = false;
 
-// Prototipo de callback MQTT (para poder usarlo en mqttSetup)
-void mqttCallback(char* topic, byte* payload, unsigned int length);
+uint32_t lastCarCmdMs = 0;
 
 /****************************************
- * I²C único (Wire) para sensores temp y oxímetro
+ * I²C único (Wire)
  ****************************************/
-#define I2C_SDA    21
-#define I2C_SCL    22
-#define I2C_FREQ   100000   // 100 kHz
+#define I2C_SDA  21
+#define I2C_SCL  22
+#define I2C_FREQ 100000
 
 /****************************************
  * Sensores
  ****************************************/
-Adafruit_MLX90614 mlx = Adafruit_MLX90614(); // 0x5A
+Adafruit_MLX90614 mlx = Adafruit_MLX90614();
 bool mlxOK = false;
 
 MAX30105 particleSensor;
 bool maxOK = false;
 
-// Del algoritmo MAX
-#define SAMPLE_DELAY_MS (1000 / FreqS)   // ~40 ms (25 Hz)
+// Del algoritmo MAX: FreqS=25 => 40 ms
+#define SAMPLE_DELAY_MS (1000 / FreqS)
 
 /****************************************
- * Calibración MLX
+ * MLX offset
  ****************************************/
-const float MLX_OFFSET_C = 2.5f;   // offset para To (frente ~2 cm)
+const float MLX_OFFSET_C = 2.5f;
 
 /****************************************
  * Filtro simple HR/SpO2 (EMA + outlier reject)
@@ -135,190 +130,99 @@ inline void updateFilters(int32_t hr, int8_t hrValid, int32_t s2, int8_t s2Valid
       spo2_f = (1.0f - ALPHA_SPO2) * spo2_f + ALPHA_SPO2 * s2;
   }
 }
-
-bool fingerPresent();
 inline void resetFilters() { hr_f = -1.0f; spo2_f = -1.0f; }
-// Estado global de dedo y HR/SpO2 (último cálculo terminado)
-bool hasFingerGlobal     = false;
-volatile bool hrSpo2Ready = false;
-int32_t hr_last          = -1;
-int32_t spo2_last        = -1;
-int8_t hrValid_last      = 0;
-int8_t spo2Valid_last    = 0;
 
+/****************************************
+ * Calibración HR/SpO2
+ ****************************************/
+float CAL_HR_BPM   = -10.0f;
+float CAL_SPO2_PCT = -5.0f;
+const int SPO2_MIN = 88, SPO2_MAX = 100;
+
+/****************************************
+ * AGC para MAX30102 (igual que tu funcional)
+ ****************************************/
+const uint32_t IR_TARGET  = 60000;
+const uint32_t RED_TARGET = 45000;
+const uint32_t DC_TOL     = 8000;
+
+const uint8_t LED_MIN = 0x08;
+const uint8_t LED_MAX = 0x60;
+
+uint8_t ledIR  = 0x1F;
+uint8_t ledRED = 0x1F;
+
+/****************************************
+ * Peak-based BPM (IR) (igual que tu funcional)
+ ****************************************/
+const float HR_MIN = 40.0f, HR_MAX = 180.0f;
+const float HP_ALPHA = 0.95f;
+const float LP_ALPHA = 0.20f;
+const uint32_t REFRACT_MS = 350;
+const float TH_K = 0.7f;
+
+float ir_dc = 0.0f;
+float ir_env = 0.0f;
+uint32_t lastPeakMs = 0;
+float lastPPMs[5] = {0};
+uint8_t nPP = 0;
+float g_bpm_peak = NAN;
+
+static bool processIRSampleForPeak(uint32_t ir, uint32_t nowMs, float &bpmOut) {
+  ir_dc = HP_ALPHA * ir_dc + (1.0f - HP_ALPHA) * (float)ir;
+  float x = (float)ir - ir_dc;
+
+  float ax = fabsf(x);
+  ir_env = (1.0f - LP_ALPHA) * ir_env + LP_ALPHA * ax;
+
+  float thr = TH_K * ir_env;
+
+  static bool wasAbove = false;
+  bool isAbove = (x > thr);
+
+  bool peak = false;
+  if (isAbove && !wasAbove) {
+    if (lastPeakMs == 0 || (nowMs - lastPeakMs) >= REFRACT_MS) {
+      if (lastPeakMs != 0) {
+        float ppm = (float)(nowMs - lastPeakMs);
+        if (ppm > 300.0f && ppm < 1500.0f) {
+          if (nPP < 5) { lastPPMs[nPP++] = ppm; }
+          else {
+            for (int i=1;i<5;i++) lastPPMs[i-1] = lastPPMs[i];
+            lastPPMs[4] = ppm;
+          }
+          float sum = 0; for (int i=0;i<nPP;i++) sum += lastPPMs[i];
+          float meanPP = sum / (float)nPP;
+          float bpm = 60000.0f / meanPP;
+          if (bpm >= HR_MIN && bpm <= HR_MAX) {
+            bpmOut = bpm;
+            peak = true;
+          }
+        }
+      }
+      lastPeakMs = nowMs;
+    }
+  }
+  wasAbove = isAbove;
+  return peak;
+}
 
 /****************************************
  * Tiempo / timers
  ****************************************/
-uint32_t lastUpdateMs   = 0;
-const uint32_t UPDATE_MS = 2000;   // intervalo de envío de salud
+uint32_t lastUpdateMs = 0;
+const uint32_t UPDATE_MS = 2000;
 
-uint32_t lastRSSI       = 0;
+uint32_t lastRSSI = 0;
 
-float     lastWeightKg  = NAN;
-uint32_t  lastWeightAt  = 0;
+// Peso caching
+float     lastWeightKg = NAN;
+uint32_t  lastWeightAt = 0;
 const uint32_t WEIGHT_FRESH_MS = 8000;
 
 // "alive" del carro
-uint32_t lastCarAlive   = 0;
+uint32_t lastCarAlive = 0;
 const uint32_t CAR_ALIVE_MS = 5000;
-uint32_t lastCarCmdMs = 0;
-
-/****************************************
- * Utilidades sensores
- ****************************************/
-void scanI2C(TwoWire &bus, const char* name) {
-  Serial.printf("\n[SCAN] %s\n", name);
-  uint8_t found = 0;
-  for (uint8_t addr = 1; addr < 127; addr++) {
-    bus.beginTransmission(addr);
-    uint8_t err = bus.endTransmission();
-    if (err == 0) {
-      Serial.printf("  - Dispositivo en 0x%02X\n", addr);
-      found++;
-    }
-  }
-  if (!found) Serial.println("  (sin dispositivos)");
-}
-
-bool initMLX() {
-  for (int i = 0; i < 3; i++) {
-    if (mlx.begin(0x5A, &Wire)) return true;
-    delay(50);
-  }
-  return false;
-}
-
-bool initMAX30102() {
-  // Inicializa el sensor en el mismo bus I2C
-  if (!particleSensor.begin(Wire, I2C_SPEED_STANDARD)) {
-    return false;
-  }
-
-    byte ledBrightness = 0x8F;
-  byte sampleAverage = 4;
-  byte ledMode       = 2;     // Rojo + IR
-  int  sampleRate    = 25;    // Hz, para que coincida con FreqS=25
-  int  pulseWidth    = 411;
-  int  adcRange      = 16384;
-
-  particleSensor.setup(ledBrightness, sampleAverage, ledMode,
-                       sampleRate, pulseWidth, adcRange);
-
-  // Usa el mismo brillo en los dos LEDs
-  particleSensor.setPulseAmplitudeRed(ledBrightness);
-  particleSensor.setPulseAmplitudeIR(ledBrightness);
-  particleSensor.setPulseAmplitudeGreen(0);  // apagado
-
-  return true;
-}
-
-void hrSpO2Service() {
-  if (!maxOK) return;
-
-  static uint32_t irBuffer[BUFFER_SIZE];
-  static uint32_t redBuffer[BUFFER_SIZE];
-  static int idx = 0;
-
-  // Si no hay dedo, resetea índice y salimos rápido
-  if (!hasFingerGlobal) {
-    idx = 0;
-    return;
-  }
-
-  // Actualizar FIFO del sensor
-  particleSensor.check();
-
-  // Leer todas las muestras disponibles sin bloqueos largos
-  while (particleSensor.available()) {
-    redBuffer[idx] = particleSensor.getRed();
-    irBuffer[idx]  = particleSensor.getIR();
-    particleSensor.nextSample();
-    idx++;
-
-    if (idx >= BUFFER_SIZE) {
-      int32_t hr; int8_t hrValid;
-      int32_t spo2; int8_t spo2Valid;
-
-      maxim_heart_rate_and_oxygen_saturation(
-        irBuffer, BUFFER_SIZE, redBuffer,
-        &spo2, &spo2Valid, &hr, &hrValid);
-
-      hr_last        = hr;
-      hrValid_last   = hrValid;
-      spo2_last      = spo2;
-      spo2Valid_last = spo2Valid;
-      hrSpo2Ready    = true;
-
-      idx = 0;  // Comienza de nuevo para el siguiente cálculo
-      break;    // Se calcula una vez por buffer lleno
-    }
-  }
-}
-
-//Lectura de temperaturas
-bool readTemps(double &Ta, double &To) {
-  if (!mlxOK) { Ta = NAN; To = NAN; return false; }
-  Ta = mlx.readAmbientTempC();
-  To = mlx.readObjectTempC();
-  To += MLX_OFFSET_C;
-  return isfinite(Ta) && isfinite(To);
-}
-
-/****************************************
- * Detección de dedo
- ****************************************/
-bool fingerPresent() {
-  if (!maxOK) return false;
-
-  const int N = 16;
-  uint32_t ir;
-  double sum = 0.0, sum2 = 0.0;
-  int samples = 0;
-
-  // Leemos hasta N muestras SI están disponibles
-  for (int i = 0; i < N; i++) {
-    particleSensor.check();
-    if (!particleSensor.available()) continue;
-
-    ir = particleSensor.getIR();
-    particleSensor.nextSample();
-
-    sum  += ir;
-    sum2 += (double)ir * (double)ir;
-    samples++;
-  }
-
-  // Si casi no hay muestras, se asume que no hay dedo
-  if (samples < 4) {
-    hasFingerGlobal = false;
-    return false;
-  }
-
-  double mean = sum / samples;
-  double var  = (sum2 / samples) - (mean * mean);
-  double stdv = (var > 0) ? sqrt(var) : 0;
-
-  const double MEAN_MIN = 5000.0;
-  const double STD_MIN  = 5.0;
-
-  bool present = (mean >= MEAN_MIN) && (stdv >= STD_MIN);
-
-  hasFingerGlobal = present;
-
-  // Debug (Comentarse de ser necesario)
-  Serial.print("[finger] mean=");
-  Serial.print(mean);
-  Serial.print(" std=");
-  Serial.print(stdv);
-  Serial.print(" samples=");
-  Serial.print(samples);
-  Serial.print(" -> ");
-  Serial.println(present ? "DED0" : "NO");
-
-  return present;
-}
-
 
 /****************************************
  * Wi-Fi robusto (state machine)
@@ -342,13 +246,8 @@ const char* reasonText(uint8_t r){
     case 8:  return "ASSOC_LEAVE";
     case 9:  return "ASSOC_NOT_AUTHED";
     case 15: return "4WAY_HANDSHAKE_TIMEOUT";
-    case 17: return "IE_INVALID";
-    case 23: return "MIC_FAILURE";
-    case 24: return "4WAY_HANDSHAKE_TIMEOUT2";
-    case 29: return "ASSOC_FAIL";
     case 201: return "NO_AP_FOUND";
     case 202: return "AUTH_FAIL";
-    case 203: return "ASSOC_FAIL2";
     case 204: return "HANDSHAKE_TIMEOUT";
     default: return "UNKNOWN";
   }
@@ -376,7 +275,7 @@ void wifiFindAP(const char* ssid) {
                   targetBSSID[0],targetBSSID[1],targetBSSID[2],
                   targetBSSID[3],targetBSSID[4],targetBSSID[5]);
   } else {
-    Serial.println("[WiFi] No se encontró el SSID objetivo en el escaneo.");
+    Serial.println("[WiFi] No se encontró el SSID objetivo.");
   }
 }
 
@@ -417,13 +316,12 @@ void wifiStartConnect(){
   delay(50);
 
   if (useBSSIDLock && targetChannel > 0 && targetBSSID[0] != 0) {
-    Serial.printf("[WiFi] Conectando a \"%s\" anclado a canal %d / BSSID ...\n", WIFI_SSID, targetChannel);
+    Serial.printf("[WiFi] Conectando a \"%s\" anclado...\n", WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PASS, targetChannel, targetBSSID, true);
   } else {
-    Serial.printf("[WiFi] Conectando a \"%s\" (sin anclaje)...\n", WIFI_SSID);
+    Serial.printf("[WiFi] Conectando a \"%s\"...\n", WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
   }
-
   wifiState = WifiState::CONNECTING;
 }
 
@@ -443,9 +341,9 @@ void wifiService(){
   if (wifiState == WifiState::CONNECTING) {
     if (startedAt == 0) startedAt = millis();
     if (millis() - startedAt > 8000) {
-      Serial.println("[WiFi] Timeout conectando. Re-escanear y reintentar...");
+      Serial.println("[WiFi] Timeout conectando. Reintento...");
       wifiFindAP(WIFI_SSID);
-      if (useBSSIDLock == true) useBSSIDLock = false;
+      useBSSIDLock = false;
       wifiState = WifiState::IDLE;
       startedAt = 0;
       backoffMs = min<uint16_t>(backoffMs * 2, 30000);
@@ -456,23 +354,21 @@ void wifiService(){
     return;
   }
 
-  if (useBSSIDLock && (targetChannel == 0 || targetBSSID[0] == 0)) {
-    wifiFindAP(WIFI_SSID);
-  }
+  if (useBSSIDLock && (targetChannel == 0 || targetBSSID[0] == 0)) wifiFindAP(WIFI_SSID);
   wifiStartConnect();
+
   nextAction = millis() + backoffMs;
   backoffMs = min<uint16_t>(backoffMs * 2, 30000);
 }
 
 /****************************************
- * MQTT helpers con backoff
+ * MQTT helpers
  ****************************************/
 void mqttSetup(){
   client.setServer(MQTT_SERVER, MQTT_PORT);
   client.setKeepAlive(30);
   client.setSocketTimeout(5);
   client.setBufferSize(256);
-  client.setCallback(mqttCallback);      // Comandos del carro
 }
 
 void mqttService(){
@@ -500,9 +396,7 @@ void mqttService(){
   if (ok) {
     Serial.println("OK");
     backoff = 1000;
-    // Suscribir comandos del carro
     client.subscribe(TOPIC_CMD);
-    // Estado inicial
     client.publish(TOPIC_STATE, "online");
   } else {
     Serial.printf("falló rc=%d\n", client.state());
@@ -512,10 +406,24 @@ void mqttService(){
 }
 
 /****************************************
- * ===== BLE Mi Body Scale =====
+ * Background pump (para NO matar MQTT/WiFi mientras MAX bloquea)
  ****************************************/
-static const char* UUID_181B = "0000181b-0000-1000-8000-00805f9b34fb"; // Body Composition
-static const char* UUID_181D = "0000181d-0000-1000-8000-00805f9b34fb"; // Weight Scale
+float readCliffDistanceCm(); // forward
+void cliffService();         // forward
+
+static inline void backgroundPump() {
+  cliffService();
+  wifiService();
+  mqttService();
+  if (client.connected()) client.loop();
+  yield();
+}
+
+/****************************************
+ * BLE Mi Body Scale
+ ****************************************/
+static const char* UUID_181B = "0000181b-0000-1000-8000-00805f9b34fb";
+static const char* UUID_181D = "0000181d-0000-1000-8000-00805f9b34fb";
 
 static const float EXPECTED_MIN_KG = 30.0f;
 static const float EXPECTED_MAX_KG = 90.0f;
@@ -546,10 +454,9 @@ static float pickWeightFrom181x(const uint8_t* sd, int sl) {
 }
 
 static void publishWeight(float kg) {
-  Serial.printf("%.2f\n", kg);
+  Serial.printf("[scale] %.2f kg\n", kg);
   lastWeightKg = kg;
   lastWeightAt = millis();
-
   if (client.connected()) {
     char buf[24];
     dtostrf(kg, 0, 2, buf);
@@ -563,7 +470,7 @@ class AdvCallbacks : public BLEAdvertisedDeviceCallbacks {
     if (cnt <= 0) return;
 
     for (int i = 0; i < cnt; ++i) {
-      String uuid = dev.getServiceDataUUID(i).toString();
+      String uuid = String(dev.getServiceDataUUID(i).toString().c_str());
       if (!uuid.equalsIgnoreCase(UUID_181B) && !uuid.equalsIgnoreCase(UUID_181D)) continue;
 
       String data = dev.getServiceData(i);
@@ -571,9 +478,7 @@ class AdvCallbacks : public BLEAdvertisedDeviceCallbacks {
       int sl = data.length();
 
       float kg = pickWeightFrom181x(sd, sl);
-      if (!isnan(kg)) {
-        publishWeight(kg);
-      }
+      if (!isnan(kg)) publishWeight(kg);
     }
   }
 };
@@ -595,28 +500,21 @@ void scaleService() {
   static uint32_t lastScan = 0;
   uint32_t now = millis();
 
-  const uint32_t SCAN_PERIOD_MS      = 5000; // cada 5 s
-  const uint32_t NO_SCAN_AFTER_CMD_MS = 2000; // 2 s después de mover el carro, NO escanea
+  const uint32_t SCAN_PERIOD_MS        = 5000;
+  const uint32_t NO_SCAN_AFTER_CMD_MS  = 2000;
 
-  // Si hace poco se envió un comando al carro, no bloquees con BLE
-  if (now - lastCarCmdMs < NO_SCAN_AFTER_CMD_MS) {
-    return;
-  }
-
-  if (now - lastScan < SCAN_PERIOD_MS) {
-    return; // nada que hacer todavía
-  }
+  if (now - lastCarCmdMs < NO_SCAN_AFTER_CMD_MS) return;
+  if (now - lastScan < SCAN_PERIOD_MS) return;
   lastScan = now;
 
-  // Esta parte bloquea ~1 s, pero sólo cuando no estamos controlando el carro
-  g_bleScan->start(1 /*sec*/, false);
+  g_bleScan->start(1, false);
   g_bleScan->clearResults();
 }
 
 /****************************************
- * ==== Código del carro (L298N) ====
+ * Carro helpers
  ****************************************/
-void setDirA(int v){ // v>0 fwd, v<0 back, v=0 free
+void setDirA(int v){
   if (v > 0)      { digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);  }
   else if (v < 0) { digitalWrite(IN1, LOW);  digitalWrite(IN2, HIGH); }
   else            { digitalWrite(IN1, LOW);  digitalWrite(IN2, LOW);  }
@@ -627,11 +525,10 @@ void setDirB(int v){
   else            { digitalWrite(IN3, LOW);  digitalWrite(IN4, LOW);  }
 }
 
-void setPWM_A(int d){ if (d<0) d=0; if (d>255) d=255; analogWrite(ENA, d); }
-void setPWM_B(int d){ if (d<0) d=0; if (d>255) d=255; analogWrite(ENB, d); }
+void setPWM_A(int d){ d = constrain(d, 0, 255); analogWrite(ENA, d); }
+void setPWM_B(int d){ d = constrain(d, 0, 255); analogWrite(ENB, d); }
 
 void stopMotors() {
-  // freno activo + duty 0
   digitalWrite(IN1, HIGH); digitalWrite(IN2, HIGH);
   digitalWrite(IN3, HIGH); digitalWrite(IN4, HIGH);
   setPWM_A(0); setPWM_B(0);
@@ -644,100 +541,59 @@ void applyKickIfNeeded(int d){
   }
 }
 
-//Direcciones del carro
-void driveForward()  {
-  setDirA(-1); setDirB(-1);
-  applyKickIfNeeded(duty);
-  setPWM_A(duty); setPWM_B(duty);
-}
-void driveBackward() {
-  setDirA(+1); setDirB(+1);
-  applyKickIfNeeded(duty);
-  setPWM_A(duty); setPWM_B(duty);
-}
-void turnLeft()  {
-  setDirA(+1); setDirB(-1);
-  applyKickIfNeeded(duty);
-  setPWM_A(duty); setPWM_B(duty);
-}
-void turnRight() {
-  setDirA(-1); setDirB(+1);
-  applyKickIfNeeded(duty);
-  setPWM_A(duty); setPWM_B(duty);
-}
+void driveForward()  { setDirA(-1); setDirB(-1); applyKickIfNeeded(duty); setPWM_A(duty); setPWM_B(duty); }
+void driveBackward() { setDirA(+1); setDirB(+1); applyKickIfNeeded(duty); setPWM_A(duty); setPWM_B(duty); }
+void turnLeft()      { setDirA(+1); setDirB(-1); applyKickIfNeeded(duty); setPWM_A(duty); setPWM_B(duty); }
+void turnRight()     { setDirA(-1); setDirB(+1); applyKickIfNeeded(duty); setPWM_A(duty); setPWM_B(duty); }
 
-// Estado del carro visto en NODE-RED
 void publishCarState(const char* state) {
-  if (client.connected()) {
-    client.publish(TOPIC_STATE, state);
-  }
+  if (client.connected()) client.publish(TOPIC_STATE, state);
 }
 
 /****************************************
- * MQTT callback: comandos del carro
+ * MQTT comando carro
  ****************************************/
-void mqttCallback(char* topic, byte* payload, unsigned int length)
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
   if (strcmp(topic, TOPIC_CMD) != 0) return;
 
   String msg; msg.reserve(length);
   for (unsigned int i = 0; i < length; i++) msg += (char)payload[i];
   msg.trim();
 
-  String up = msg;
-  up.toUpperCase();
+  String up = msg; up.toUpperCase();
 
-  // Si está en maniobra anti-caída, ignorar comandos de movimiento
   if (cliffActive) {
-    // Permitimos STOP/BRAKE para mayor seguridad
     if (up == "S" || up == "STOP" || up == "BRAKE") {
       stopMotors();
       publishCarState("user_stop_during_cliff");
+      lastCarCmdMs = millis();
     } else {
       publishCarState("cliff_lockout");
     }
     return;
   }
-//Payloads a NODE-RED
-  if (up == "F") {
-    driveForward();  publishCarState("forward");
-    lastCarCmdMs = millis();
-    return;
-  }
-  if (up == "B") {
-    driveBackward(); publishCarState("backward");
-    lastCarCmdMs = millis();
-    return;
-  }
-  if (up == "L") {
-    turnLeft();      publishCarState("left");
-    lastCarCmdMs = millis();
-    return;
-  }
-  if (up == "R") {
-    turnRight();     publishCarState("right");
-    lastCarCmdMs = millis();
-    return;
-  }
-  if (up == "S" || up=="STOP") {
-    stopMotors();  publishCarState("stop");
-    lastCarCmdMs = millis();
-    return;
-  }
+
+  if (up == "F") { driveForward();  publishCarState("forward");  lastCarCmdMs = millis(); return; }
+  if (up == "B") { driveBackward(); publishCarState("backward"); lastCarCmdMs = millis(); return; }
+  if (up == "L") { turnLeft();      publishCarState("left");     lastCarCmdMs = millis(); return; }
+  if (up == "R") { turnRight();     publishCarState("right");    lastCarCmdMs = millis(); return; }
+
+  if (up == "S" || up == "STOP") { stopMotors(); publishCarState("stop"); lastCarCmdMs = millis(); return; }
+
   if (up == "COAST") {
     digitalWrite(IN1, LOW); digitalWrite(IN2, LOW);
     digitalWrite(IN3, LOW); digitalWrite(IN4, LOW);
     setPWM_A(0); setPWM_B(0);
     publishCarState("coast");
+    lastCarCmdMs = millis();
     return;
   }
-  if (up == "BRAKE") { stopMotors(); publishCarState("brake"); return; }
 
-  // Ajuste de velocidad: SPD:0..255
+  if (up == "BRAKE") { stopMotors(); publishCarState("brake"); lastCarCmdMs = millis(); return; }
+
   if (up.startsWith("SPD:")) {
     int val = msg.substring(4).toInt();
-    if (val < 0) val = 0;
-    if (val > 255) val = 255;
-    duty = val;
+    duty = constrain(val, 0, 255);
     String s = String("speed=") + String(duty);
     publishCarState(s.c_str());
     lastCarCmdMs = millis();
@@ -745,40 +601,26 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
   }
 }
 
-
 /****************************************
- * Lectura del sensor ultrasónico
+ * Lectura ultrasónico / cliff
  ****************************************/
 float readCliffDistanceCm() {
-  // Generar pulso de disparo de 10 us en TRIG
   digitalWrite(US_TRIG, LOW);
   delayMicroseconds(2);
   digitalWrite(US_TRIG, HIGH);
   delayMicroseconds(10);
   digitalWrite(US_TRIG, LOW);
 
-  // Medir duración del pulso de ECHO (hasta 15 ms máx)
   unsigned long duration = pulseIn(US_ECHO, HIGH, 15000UL);
-
-  if (duration == 0) {
-    // Sin eco claro: lo tratamos como "muy lejos"
-    return 999.0f;
-  }
-
-  // Convertir duración a distancia (cm)
-  // Velocidad sonido ~343 m/s -> 0.0343 cm/us; ida y vuelta -> /2
-  float distanceCm = (duration * 0.0343f) / 2.0f;
-  return distanceCm;
+  if (duration == 0) return 999.0f;
+  return (duration * 0.0343f) / 2.0f;
 }
 
-/****************************************
- * Servicio anti-caída (borde de mesa)
- ****************************************/
+// ✅ ESTA FUNCIÓN YA VA CON TODAS LAS LLAVES BIEN
 void cliffService() {
   static uint32_t lastMeasure = 0;
   uint32_t now = millis();
 
-  // Si ya estamos en maniobra, manejar la máquina de estados
   if (cliffState == CliffState::BACKING) {
     if (now - cliffStateStart >= BACK_TIME_MS) {
       stopMotors();
@@ -800,36 +642,211 @@ void cliffService() {
     return;
   }
 
-  // Si estamos en estado NORMAL, medir cada ~100 ms
   if (now - lastMeasure < 100) return;
   lastMeasure = now;
 
   float d = readCliffDistanceCm();
 
-  // Debug SENSOR ULTRASÓNICO (Comentado para no estorbar en el monitor serial de Arduino)
-  /*
-  Serial.print("[cliff] d = ");
-  Serial.print(d);
-  Serial.println(" cm");
-  */
-
-  if (d > 0 && d > CLIFF_THRESHOLD_CM) {
-    // Se detecta borde / caída
-    Serial.print("[cliff] POSIBLE CAÍDA, d=");
-    Serial.print(d);
-    Serial.println(" cm -> maniobra de escape");
+  if (d < CLIFF_THRESHOLD_CM) {
+    Serial.printf("[cliff] POSIBLE CAÍDA d=%.1f cm\n", d);
 
     cliffActive = true;
     cliffState  = CliffState::BACKING;
     cliffStateStart = now;
 
     stopMotors();
-    delay(20);       // mini pausa para asegurar freno
-    driveBackward(); // empezar a retroceder
+    delay(20);
+    driveBackward();
     publishCarState("cliff_back");
+    lastCarCmdMs = millis();
   }
 }
 
+/****************************************
+ * Sensores: init MAX/MLX
+ ****************************************/
+void scanI2C(TwoWire &bus, const char* name) {
+  Serial.printf("\n[SCAN] %s\n", name);
+  uint8_t found = 0;
+  for (uint8_t addr = 1; addr < 127; addr++) {
+    bus.beginTransmission(addr);
+    uint8_t err = bus.endTransmission();
+    if (err == 0) {
+      Serial.printf("  - Dispositivo en 0x%02X\n", addr);
+      found++;
+    }
+  }
+  if (!found) Serial.println("  (sin dispositivos)");
+}
+
+bool initMLX() {
+  for (int i = 0; i < 3; i++) {
+    if (mlx.begin(0x5A, &Wire)) return true;
+    delay(50);
+  }
+  return false;
+}
+
+// SampleRate=100; pero pacing a 25 Hz al llenar buffer
+bool initMAX30102() {
+  if (!particleSensor.begin(Wire, I2C_SPEED_STANDARD)) return false;
+
+  byte sampleAverage = 4;
+  byte ledMode = 2;
+  int  sampleRate   = 100;
+  int  pulseWidth   = 411;
+  int  adcRange     = 16384;
+
+  ledRED = 0x1F;
+  ledIR  = 0x1F;
+
+  particleSensor.setup(ledIR, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange);
+  particleSensor.setPulseAmplitudeRed(ledRED);
+  particleSensor.setPulseAmplitudeIR(ledIR);
+  particleSensor.setPulseAmplitudeGreen(0);
+
+  particleSensor.clearFIFO();
+  return true;
+}
+
+bool readTemps(double &Ta, double &To) {
+  if (!mlxOK) { Ta = NAN; To = NAN; return false; }
+  Ta = mlx.readAmbientTempC();
+  To = mlx.readObjectTempC();
+  To += MLX_OFFSET_C;
+  return isfinite(Ta) && isfinite(To);
+}
+
+/****************************************
+ * Finger detect EXACTO (tu funcional)
+ ****************************************/
+bool fingerPresent() {
+  if (!maxOK) return false;
+
+  const int N = 16;
+  uint32_t ir;
+  double sum = 0.0, sum2 = 0.0;
+
+  for (int i = 0; i < N; i++) {
+    uint32_t t0 = millis();
+    while (!particleSensor.available()) {
+      particleSensor.check();
+      backgroundPump();
+      if (millis() - t0 > 200) break;
+      delay(1);
+    }
+    if (!particleSensor.available()) continue;
+
+    ir = particleSensor.getIR();
+    particleSensor.nextSample();
+    sum  += ir;
+    sum2 += (double)ir * (double)ir;
+  }
+
+  double mean = sum / (double)N;
+  double var  = (sum2 / (double)N) - (mean * mean);
+  double stdv = (var > 0) ? sqrt(var) : 0;
+
+  const double MEAN_MIN = 20000.0;
+  const double STD_MIN  = 20.0;
+
+  return (mean >= MEAN_MIN) && (stdv >= STD_MIN);
+}
+
+/****************************************
+ * Quick DC + AGC (tu funcional)
+ ****************************************/
+static bool readQuickDC(uint32_t &irDC, uint32_t &redDC, int N = 32, uint32_t timeout_ms = 500) {
+  if (!maxOK) return false;
+  uint64_t sir=0, srd=0;
+  int got=0;
+  uint32_t t0 = millis();
+  while (got < N) {
+    while (!particleSensor.available()) {
+      particleSensor.check();
+      backgroundPump();
+      if (millis() - t0 > timeout_ms) break;
+      delay(1);
+    }
+    if (!particleSensor.available()) break;
+    uint32_t red = particleSensor.getRed();
+    uint32_t ir  = particleSensor.getIR();
+    particleSensor.nextSample();
+    sir += ir; srd += red; got++;
+  }
+  if (got < N/2) return false;
+  irDC = (uint32_t)(sir / got);
+  redDC= (uint32_t)(srd / got);
+  return true;
+}
+
+static void agcAdjust() {
+  uint32_t irDC=0, redDC=0;
+  if (!readQuickDC(irDC, redDC)) return;
+
+  if (irDC < IR_TARGET - DC_TOL && ledIR < LED_MAX) {
+    ledIR = min<uint8_t>(LED_MAX, (uint8_t)(ledIR + 4));
+    particleSensor.setPulseAmplitudeIR(ledIR);
+  } else if (irDC > IR_TARGET + DC_TOL && ledIR > LED_MIN) {
+    ledIR = max<uint8_t>(LED_MIN, (uint8_t)(ledIR - 4));
+    particleSensor.setPulseAmplitudeIR(ledIR);
+  }
+
+  if (redDC < RED_TARGET - DC_TOL && ledRED < LED_MAX) {
+    ledRED = min<uint8_t>(LED_MAX, (uint8_t)(ledRED + 4));
+    particleSensor.setPulseAmplitudeRed(ledRED);
+  } else if (redDC > RED_TARGET + DC_TOL && ledRED > LED_MIN) {
+    ledRED = max<uint8_t>(LED_MIN, (uint8_t)(ledRED - 4));
+    particleSensor.setPulseAmplitudeRed(ledRED);
+  }
+}
+
+/****************************************
+ * readHRSpO2 EXACTO (tu funcional) + pump adentro
+ ****************************************/
+bool readHRSpO2(int32_t &hr, int8_t &hrValid, int32_t &spo2, int8_t &spo2Valid) {
+  if (!maxOK) { hr=-1; hrValid=0; spo2=-1; spo2Valid=0; return false; }
+
+  uint32_t irBuffer[BUFFER_SIZE];
+  uint32_t redBuffer[BUFFER_SIZE];
+
+  for (int i = 0; i < BUFFER_SIZE; i++) {
+    uint32_t t0 = millis();
+    while (!particleSensor.available()) {
+      particleSensor.check();
+      backgroundPump();
+      if (millis() - t0 > 2000) return false;
+      delay(1);
+    }
+
+    redBuffer[i] = particleSensor.getRed();
+    irBuffer[i]  = particleSensor.getIR();
+    particleSensor.nextSample();
+
+    uint32_t t1 = millis();
+    while (millis() - t1 < SAMPLE_DELAY_MS) {
+      particleSensor.check();
+      backgroundPump();
+      delay(1);
+    }
+  }
+
+  maxim_heart_rate_and_oxygen_saturation(
+    irBuffer, BUFFER_SIZE, redBuffer,
+    &spo2, &spo2Valid, &hr, &hrValid);
+
+  g_bpm_peak = NAN;
+  {
+    uint32_t now = millis();
+    for (int i = 0; i < BUFFER_SIZE; i++) {
+      float tmp;
+      bool got = processIRSampleForPeak(irBuffer[i], now + i * SAMPLE_DELAY_MS, tmp);
+      if (got) g_bpm_peak = tmp;
+    }
+  }
+
+  return (hrValid == 1 || spo2Valid == 1);
+}
 
 /****************************************
  * Setup
@@ -837,9 +854,8 @@ void cliffService() {
 void setup() {
   Serial.begin(115200);
   delay(300);
-  Serial.println("\n[START] ESP32 Car + Health + BLE Scale");
+  Serial.println("\n[START] ESP32 Car + Health + BLE Scale + WiFi/MQTT (MAX modo funcional)");
 
-  // I2C
   Wire.begin(I2C_SDA, I2C_SCL);
   Wire.setClock(I2C_FREQ);
 
@@ -851,28 +867,29 @@ void setup() {
   maxOK = initMAX30102();
   Serial.println(maxOK ? "MAX30102 OK (0x57 tipico)" : "MAX30102 NO detectado");
 
-  // Motores: pines como salida y estado seguro
+  // Motores
   pinMode(IN1, OUTPUT); pinMode(IN2, OUTPUT);
   pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
   pinMode(ENA, OUTPUT); pinMode(ENB, OUTPUT);
-
   analogWrite(ENA, 0);
   analogWrite(ENB, 0);
   stopMotors();
 
-  // Sensor ultrasónico anti-caída
+  // Ultrasonico
   pinMode(US_TRIG, OUTPUT);
   pinMode(US_ECHO, INPUT);
   digitalWrite(US_TRIG, LOW);
 
-  // WiFi + MQTT
+  // WiFi
   wifiInitStation();
   wifiFindAP(WIFI_SSID);
   wifiStartConnect();
 
+  // MQTT
   mqttSetup();
+  client.setCallback(mqttCallback);
 
-  // BLE báscula
+  // BLE scale
   scaleInit();
 }
 
@@ -880,17 +897,14 @@ void setup() {
  * Loop
  ****************************************/
 void loop() {
-  // 0) Anti-caída primero
+  // Seguridad primero
   cliffService();
 
-  // 1) Servicio de HR/SpO2
-  hrSpO2Service();
-
-  // 2) Servicios de red
+  // Red / MQTT
   wifiService();
   mqttService();
 
-  // 3) BLE báscula
+  // BLE báscula
   scaleService();
 
   uint32_t now = millis();
@@ -901,41 +915,51 @@ void loop() {
     double Ta = NAN, To = NAN;
     bool tempOK = readTemps(Ta, To);
 
-    // Actualizar detección de dedo (también llena hasFingerGlobal)
+    // HR/SpO2 EXACTO al funcional:
     bool hasFinger = fingerPresent();
 
     int32_t hr = -1; int8_t hrValid = 0;
     int32_t s2 = -1; int8_t s2Valid = 0;
 
-    if (hasFinger && hrSpo2Ready) {
-      // Usa la última medición disponible cuando ya no detecta otra
-      hr        = hr_last;
-      hrValid   = hrValid_last;
-      s2        = spo2_last;
-      s2Valid   = spo2Valid_last;
-      hrSpo2Ready = false;
-
-      Serial.print("[hr/spo2] hr=");
-      Serial.print(hr);
-      Serial.print(" v=");
-      Serial.print((int)hrValid);
-      Serial.print(" spo2=");
-      Serial.print(s2);
-      Serial.print(" v=");
-      Serial.println((int)s2Valid);
-
+    if (hasFinger) {
+      (void)readHRSpO2(hr, hrValid, s2, s2Valid);
       updateFilters(hr, hrValid, s2, s2Valid);
+      agcAdjust();
     } else {
       resetFilters();
+      g_bpm_peak = NAN;
     }
 
-    int32_t hr_show  = hasFinger ? ((hr_f > 0) ? (int32_t)lroundf(hr_f) : hr) : -1;
-    int32_t s2_show  = hasFinger ? ((spo2_f > 0) ? (int32_t)lroundf(spo2_f) : s2) : -1;
+    // Selección HR: igual que tu funcional
+    float hr_sel = -1.0f;
+    int32_t hr_alg = hasFinger ? ((hr_f > 0) ? (int32_t)lroundf(hr_f) : hr) : -1;
+
+    bool peak_ok = (!isnan(g_bpm_peak) && g_bpm_peak >= HR_MIN && g_bpm_peak <= HR_MAX);
+
+    if (peak_ok && hr_alg > 0) hr_sel = 0.7f * g_bpm_peak + 0.3f * (float)hr_alg;
+    else if (peak_ok)          hr_sel = g_bpm_peak;
+    else if (hr_alg > 0)       hr_sel = (float)hr_alg;
+
+    int32_t hr_show = -1;
+    if (hasFinger && hr_sel > 0) {
+      hr_show = (int32_t)lroundf(hr_sel + CAL_HR_BPM);
+      hr_show = constrain(hr_show, 40, 200);
+    }
+
+    // SpO2 igual que tu funcional
+    int32_t s2_raw_show = hasFinger ? ((spo2_f > 0) ? (int32_t)lroundf(spo2_f) : s2) : -1;
+    int32_t s2_show = s2_raw_show;
+    if (hasFinger && s2_show > 0) {
+      s2_show = (int32_t)lroundf((float)s2_show + CAL_SPO2_PCT);
+      s2_show = constrain(s2_show, SPO2_MIN, SPO2_MAX);
+    } else {
+      s2_show = -1;
+    }
 
     float weight_for_json = (!isnan(lastWeightKg) && (now - lastWeightAt <= WEIGHT_FRESH_MS))
                               ? lastWeightKg : -1.0f;
 
-    // Debug Serial para sensores y báscula, excepto ultrasónico
+    // Serial
     Serial.print("Ta=");
     if (tempOK) Serial.print(Ta, 1); else Serial.print("NaN");
     Serial.print("C | To=");
@@ -948,9 +972,9 @@ void loop() {
     Serial.print(weight_for_json, 2);
     Serial.println(" kg");
 
-    // MQTT salud
+    // MQTT (compat)
     if (client.connected()) {
-      char json[240];
+      char json[260];
       snprintf(json, sizeof(json),
                "{\"hr\":%ld,\"hrValid\":%d,\"spo2\":%ld,\"spo2Valid\":%d,"
                "\"Ta\":%.1f,\"To\":%.1f,\"weight_kg\":%.2f}",
@@ -958,6 +982,7 @@ void loop() {
                (long)s2_show, hasFinger ? (int)s2Valid : 0,
                tempOK ? Ta : -99.9, tempOK ? To : -99.9,
                weight_for_json);
+
       client.publish(TOPIC_HEALTH, json, true);
 
       char buf[24];
@@ -965,17 +990,16 @@ void loop() {
       snprintf(buf, sizeof(buf), "%ld", (long)s2_show); client.publish(TOPIC_SPO2, buf, true);
       dtostrf(tempOK ? Ta : -99.9, 0, 1, buf);         client.publish(TOPIC_TA, buf, true);
       dtostrf(tempOK ? To : -99.9, 0, 1, buf);         client.publish(TOPIC_TO, buf, true);
-      // peso ya va por TOPIC_SCALE cuando llega el anuncio BLE
     }
   }
 
-  // Telemetría de señal WiFi
+  // RSSI
   if (wifiState == WifiState::CONNECTED && millis() - lastRSSI > 5000) {
     lastRSSI = millis();
     Serial.printf("[WiFi] RSSI: %d dBm\n", WiFi.RSSI());
   }
 
-  // "Latido" del carro
+  // alive del carro
   if (client.connected() && (millis() - lastCarAlive >= CAR_ALIVE_MS)) {
     lastCarAlive = millis();
     client.publish(TOPIC_STATE, "alive");
