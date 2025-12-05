@@ -1,4 +1,4 @@
-# 🤖 Robot de Pre-Triage (ESP32 + Node-RED + WebApp)
+# Robot de Pre-Triage (ESP32 + Node-RED + WebApp)
 
 Sistema de **pre-triaje clínico** con:
 
@@ -11,7 +11,7 @@ Proyecto académico de integración de **electrónica, IoT y desarrollo web**.
 
 ---
 
-## ✨ Características
+## Características
 
 - Lectura de signos vitales en la ESP32 y envío por MQTT.
 - Control remoto del carro (PWM / dirección) desde Node-RED / Web.
@@ -22,7 +22,7 @@ Proyecto académico de integración de **electrónica, IoT y desarrollo web**.
 
 ---
 
-## 🧱 Tecnologías
+## Tecnologías
 
 - **Hardware**: ESP32, L298N, chasis 2WD, MLX90614, MAX30102, báscula (HX711 + celda de carga).
 - **Firmware**: Arduino (C/C++).
@@ -31,7 +31,7 @@ Proyecto académico de integración de **electrónica, IoT y desarrollo web**.
 
 ---
 
-## 📁 Estructura del repositorio
+## Estructura del repositorio
 
 ```txt
 RobotPretriaje-main/
