@@ -89,6 +89,3 @@ Abrir:
 - Peso: `esp32/scale/weight_kg`
 
 ---
-
-## Licencia
-Uso académico / educativo (ajusta aquí si desean MIT, GPL, etc.).
