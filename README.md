@@ -8,7 +8,7 @@ Sistema de **pre-triaje clínico** con un robot 2WD controlado por MQTT, medici�
   - **MAX30102** (HR/SpO₂)
   - **MLX90614** (temperatura)
   - **Báscula BLE** (peso)
-  - **Ultrasonido** (detección de borde/caída)
+  - **Ultrasónico** (detección de pared)
 - **Node-RED**: puente **MQTT ⇄ WebSocket** y endpoint **HTTP** para consultar resultados.
 - **WebApp**:
   - `kiosk_ws.html` (captura + medición)
